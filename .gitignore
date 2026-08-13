@@ -1,0 +1,8 @@
+node_modules/
+.next/
+.next-profiles/
+dist/
+.env
+.env.local
+*.log
+.turbo/

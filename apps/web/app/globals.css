@@ -1,0 +1,307 @@
+@import "tailwindcss";
+
+/*
+  YRUD GAMES is a single fixed dark-fantasy theme (not a light/dark toggle) —
+  this is the brand identity of the event, not a preference to respect.
+  Palette pulled from the real Yrud portrait (black/gold/crimson armor) and
+  the RPPLF community crest (indigo/gold).
+*/
+:root {
+  --color-void: #0a0812;
+  --color-void-deep: #050409;
+  --color-panel: #17131f;
+  --color-panel-raised: #201a2c;
+  --color-border: rgba(232, 193, 90, 0.18);
+  --color-border-strong: rgba(232, 193, 90, 0.4);
+
+  --color-gold: #e8c15a;
+  --color-gold-bright: #f6d374;
+  --color-gold-dim: #a9873b;
+
+  --color-purple: #6a5fd6;
+  --color-purple-deep: #2c2560;
+
+  --color-crimson: #b23a2f;
+  --color-crimson-bright: #d9584a;
+
+  --color-ink: #f2efe6;
+  --color-ink-muted: #a49dbd;
+}
+
+@theme inline {
+  --color-background: var(--color-void);
+  --color-foreground: var(--color-ink);
+
+  --color-void: var(--color-void);
+  --color-void-deep: var(--color-void-deep);
+  --color-panel: var(--color-panel);
+  --color-panel-raised: var(--color-panel-raised);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-gold: var(--color-gold);
+  --color-gold-bright: var(--color-gold-bright);
+  --color-gold-dim: var(--color-gold-dim);
+  --color-purple: var(--color-purple);
+  --color-purple-deep: var(--color-purple-deep);
+  --color-crimson: var(--color-crimson);
+  --color-crimson-bright: var(--color-crimson-bright);
+  --color-ink: var(--color-ink);
+  --color-ink-muted: var(--color-ink-muted);
+
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+}
+
+body {
+  background: var(--color-void-deep);
+  color: var(--color-ink);
+  min-height: 100%;
+  position: relative;
+}
+
+.panel {
+  background: linear-gradient(180deg, var(--color-panel-raised), var(--color-panel));
+  border: 1px solid var(--color-border);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.text-glow-gold {
+  text-shadow: 0 0 24px rgba(232, 193, 90, 0.35);
+}
+
+.btn-gold,
+.btn-purple,
+.btn-crimson {
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+.btn-gold:hover:not(:disabled),
+.btn-purple:hover:not(:disabled),
+.btn-crimson:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+.btn-gold:active:not(:disabled),
+.btn-purple:active:not(:disabled),
+.btn-crimson:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn-gold:disabled,
+.btn-purple:disabled,
+.btn-crimson:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.btn-gold {
+  background: linear-gradient(180deg, var(--color-gold-bright), var(--color-gold));
+  color: var(--color-void-deep);
+  box-shadow: 0 4px 14px rgba(232, 193, 90, 0.3);
+}
+.btn-gold:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(232, 193, 90, 0.5);
+}
+.btn-purple {
+  background: linear-gradient(180deg, var(--color-purple), var(--color-purple-deep));
+  color: var(--color-ink);
+  box-shadow: 0 4px 14px rgba(106, 95, 214, 0.3);
+}
+.btn-purple:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(106, 95, 214, 0.5);
+}
+.btn-crimson {
+  background: linear-gradient(180deg, var(--color-crimson-bright), var(--color-crimson));
+  color: var(--color-ink);
+  box-shadow: 0 4px 14px rgba(178, 58, 47, 0.3);
+}
+.btn-crimson:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(178, 58, 47, 0.5);
+}
+
+@keyframes ember-rise {
+  0% {
+    transform: translateY(0) translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  90% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(-100vh) translateX(12px);
+    opacity: 0;
+  }
+}
+
+@keyframes orb-drift-a {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(8vw, 6vh);
+  }
+}
+
+@keyframes orb-drift-b {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-7vw, -5vh);
+  }
+}
+
+@keyframes spotlight-sweep {
+  0%,
+  100% {
+    transform: translate(-18%, -6%);
+  }
+  50% {
+    transform: translate(18%, 6%);
+  }
+}
+
+@keyframes scene-flash {
+  0% {
+    background-color: rgba(217, 88, 74, 0);
+  }
+  15% {
+    background-color: rgba(217, 88, 74, 0.35);
+  }
+  100% {
+    background-color: rgba(217, 88, 74, 0);
+  }
+}
+
+@keyframes caption-in {
+  from {
+    transform: translateY(12px) scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes scene-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-scene-enter {
+  animation: scene-enter 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes rain-fall {
+  from {
+    transform: translateY(-20%);
+  }
+  to {
+    transform: translateY(120%);
+  }
+}
+
+@keyframes snow-fall {
+  0% {
+    transform: translateY(-15%) translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(115%) translateX(14px);
+    opacity: 0.2;
+  }
+}
+
+@keyframes sand-drift {
+  0% {
+    transform: translateX(-10%);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+}
+
+@keyframes sun-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes sun-ray-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes trickroom-warp {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.03) rotate(1deg);
+  }
+}
+
+@keyframes gravity-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes move-banner-in {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.9);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+

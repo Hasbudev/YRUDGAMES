@@ -1,0 +1,168 @@
+// Data model per plan (see C:\Users\afrem\.claude\plans\iridescent-strolling-owl.md).
+// Phase 0: schema wired and generatable; most tables are unused until Phase 1+.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EventStatus {
+  draft
+  live
+  finished
+}
+
+enum QuestionTheme {
+  trivia
+  ost
+  stats
+  speed
+}
+
+model Event {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  name      String
+  status    EventStatus @default(draft)
+  livesPerPlayer Int    @default(3)
+  questionBankId String?
+  questionBank   QuestionBank? @relation(fields: [questionBankId], references: [id])
+  createdAt DateTime    @default(now())
+
+  players         Player[]
+  rounds          Round[]
+  duelLogs        DuelLog[]
+  tauntLogs       TauntLog[]
+  prankLogs       PrankLog[]
+  battlePlanLogs  BattlePlanLog[]
+  finalBattleTeams FinalBattleTeam[]
+  battleInterferenceLogs BattleInterferenceLog[]
+}
+
+model QuestionBank {
+  id        String     @id @default(cuid())
+  name      String
+  createdAt DateTime   @default(now())
+  questions Question[]
+  events    Event[]
+}
+
+model Question {
+  id             String        @id @default(cuid())
+  questionBankId String
+  questionBank   QuestionBank  @relation(fields: [questionBankId], references: [id])
+  theme          QuestionTheme
+  // Explicit sequence within the bank — DB row order is not guaranteed, and
+  // once trivia/ost/stats interleave in a specific sequence that matters.
+  order          Int           @default(0)
+  prompt         String
+  mediaUrl       String?
+  choices        Json
+  correctIndex   Int
+  metadata       Json?
+
+  answers AnswerLog[]
+}
+
+model Player {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id])
+  name        String
+  avatarId    String?
+  lives       Int
+  eliminated  Boolean  @default(false)
+  eliminatedRound Int?
+  joinedAt    DateTime @default(now())
+
+  answers AnswerLog[]
+}
+
+model Round {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id])
+  theme     QuestionTheme
+  index     Int
+  startedAt DateTime @default(now())
+
+  answers AnswerLog[]
+}
+
+model AnswerLog {
+  id          String   @id @default(cuid())
+  roundId     String
+  round       Round    @relation(fields: [roundId], references: [id])
+  playerId    String
+  player      Player   @relation(fields: [playerId], references: [id])
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id])
+  correct     Boolean
+  responseMs  Int
+  answeredAt  DateTime @default(now())
+}
+
+model DuelLog {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id])
+  opponentId  String
+  winner      String
+  rollLog     Json
+  createdAt   DateTime @default(now())
+}
+
+model FinalBattleTeam {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id])
+  playerId    String
+  playerName  String
+  packedTeam  String
+  createdAt   DateTime @default(now())
+}
+
+model TauntLog {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id])
+  message   String
+  sentAt    DateTime @default(now())
+}
+
+model PrankLog {
+  id         String   @id @default(cuid())
+  eventId    String
+  event      Event    @relation(fields: [eventId], references: [id])
+  prankId    String
+  triggeredAt DateTime @default(now())
+}
+
+model BattleInterferenceLog {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id])
+  type        String
+  params      Json?
+  turn        Int
+  triggeredAt DateTime @default(now())
+}
+
+model BattlePlanLog {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id])
+  plan      Json
+  declaredAt DateTime @default(now())
+}
+
+model AdminUser {
+  id           String @id @default(cuid())
+  username     String @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}

@@ -1,0 +1,187 @@
+const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:4000";
+const ADMIN_CODE_STORAGE_KEY = "yrud:adminCode";
+
+export interface QuestionBankSummary {
+  id: string;
+  name: string;
+  questionCount: number;
+}
+
+export interface EventSummary {
+  id: string;
+  code: string;
+  name: string;
+  status?: "draft" | "live" | "finished";
+}
+
+export interface OpenEventSummary {
+  code: string;
+  name: string;
+  status: "draft" | "live";
+  playerCount: number;
+}
+
+export function getStoredAdminCode(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ADMIN_CODE_STORAGE_KEY);
+}
+
+export function storeAdminCode(code: string) {
+  localStorage.setItem(ADMIN_CODE_STORAGE_KEY, code);
+}
+
+export function clearStoredAdminCode() {
+  localStorage.removeItem(ADMIN_CODE_STORAGE_KEY);
+}
+
+class UnauthorizedError extends Error {}
+
+async function adminFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const adminCode = getStoredAdminCode();
+  const res = await fetch(`${SERVER_URL}${path}`, {
+    ...init,
+    headers: { ...init.headers, "x-admin-code": adminCode ?? "" },
+  });
+  if (res.status === 401) {
+    clearStoredAdminCode();
+    throw new UnauthorizedError("Invalid admin code");
+  }
+  return res;
+}
+
+export { UnauthorizedError };
+
+export async function listOpenEvents(): Promise<OpenEventSummary[]> {
+  const res = await fetch(`${SERVER_URL}/api/events/open`);
+  if (!res.ok) throw new Error("Failed to load open events");
+  return res.json();
+}
+
+export async function listQuestionBanks(): Promise<QuestionBankSummary[]> {
+  const res = await adminFetch("/api/question-banks");
+  if (!res.ok) throw new Error("Failed to load question banks");
+  return res.json();
+}
+
+export async function createEvent(input: {
+  name: string;
+  questionBankId: string;
+  livesPerPlayer: number;
+}): Promise<EventSummary> {
+  const res = await adminFetch("/api/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error("Failed to create event");
+  return res.json();
+}
+
+export async function getEventByCode(code: string): Promise<EventSummary | null> {
+  const res = await fetch(`${SERVER_URL}/api/events/${encodeURIComponent(code)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Failed to load event");
+  return res.json();
+}
+
+// --- Question bank management ---
+
+export type QuestionTheme = "trivia" | "ost" | "stats" | "speed";
+
+export interface MelodyNoteInput {
+  freq: number;
+  durationMs: number;
+}
+
+export type QuestionInput =
+  | { theme: "trivia"; prompt: string; choices: string[]; correctIndex: number; mediaUrl?: string }
+  | { theme: "speed"; prompt: string; choices: string[]; correctIndex: number }
+  | { theme: "ost"; prompt: string; choices: string[]; correctIndex: number; mediaUrl?: string; notes?: MelodyNoteInput[] }
+  | { theme: "stats"; prompt: string; choices: [string, string]; correctIndex: 0 | 1; stat: string };
+
+export interface QuestionRecord {
+  id: string;
+  theme: QuestionTheme;
+  order: number;
+  prompt: string;
+  mediaUrl: string | null;
+  choices: string[];
+  correctIndex: number;
+  metadata: { notes?: MelodyNoteInput[]; stat?: string } | null;
+}
+
+class ApiError extends Error {
+  constructor(
+    message: string,
+    public details?: unknown
+  ) {
+    super(message);
+  }
+}
+
+export { ApiError };
+
+async function parseErrorOrThrow(res: Response, fallback: string): Promise<never> {
+  const body = await res.json().catch(() => null);
+  throw new ApiError(body?.error ?? fallback, body?.details);
+}
+
+export async function createQuestionBank(name: string): Promise<QuestionBankSummary> {
+  const res = await adminFetch("/api/question-banks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) return parseErrorOrThrow(res, "Échec de la création de la banque de questions.");
+  return res.json();
+}
+
+export async function listQuestions(bankId: string): Promise<QuestionRecord[]> {
+  const res = await adminFetch(`/api/question-banks/${encodeURIComponent(bankId)}/questions`);
+  if (!res.ok) return parseErrorOrThrow(res, "Échec du chargement des questions.");
+  return res.json();
+}
+
+export async function createQuestion(bankId: string, input: QuestionInput): Promise<QuestionRecord> {
+  const res = await adminFetch(`/api/question-banks/${encodeURIComponent(bankId)}/questions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return parseErrorOrThrow(res, "Échec de la création de la question.");
+  return res.json();
+}
+
+export async function updateQuestion(id: string, input: QuestionInput): Promise<QuestionRecord> {
+  const res = await adminFetch(`/api/questions/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return parseErrorOrThrow(res, "Échec de la modification de la question.");
+  return res.json();
+}
+
+export async function deleteQuestion(id: string): Promise<void> {
+  const res = await adminFetch(`/api/questions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) return parseErrorOrThrow(res, "Échec de la suppression de la question.");
+}
+
+export async function moveQuestion(id: string, direction: "up" | "down"): Promise<void> {
+  const res = await adminFetch(`/api/questions/${encodeURIComponent(id)}/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ direction }),
+  });
+  if (!res.ok) return parseErrorOrThrow(res, "Échec du déplacement de la question.");
+}
+
+export async function bulkImportQuestions(bankId: string, questions: QuestionInput[]): Promise<{ created: number }> {
+  const res = await adminFetch(`/api/question-banks/${encodeURIComponent(bankId)}/questions/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ questions }),
+  });
+  if (!res.ok) return parseErrorOrThrow(res, "Échec de l'import en masse.");
+  return res.json();
+}
