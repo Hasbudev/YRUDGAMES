@@ -52,8 +52,46 @@ eventsRouter.get("/events/open", async (_req, res) => {
       name: e.name,
       status: e.status,
       playerCount: e._count.players,
+      createdAt: e.createdAt,
     }))
   );
+});
+
+// Public: aggregated global standings across every finished event, grouped
+// by normalized player name (there's no persistent per-user account — a
+// player is just a free-text name per event).
+eventsRouter.get("/leaderboard", async (_req, res) => {
+  const players = await prisma.player.findMany({
+    where: { event: { status: "finished" }, placement: { not: null } },
+    select: { name: true, placement: true, correctAnswers: true },
+  });
+
+  const byName = new Map<
+    string,
+    { name: string; eventsPlayed: number; wins: number; bestPlacement: number; totalCorrectAnswers: number }
+  >();
+  for (const p of players) {
+    const key = p.name.trim().toLowerCase();
+    const placement = p.placement ?? 999;
+    const existing = byName.get(key);
+    if (existing) {
+      existing.eventsPlayed += 1;
+      if (placement === 1) existing.wins += 1;
+      existing.bestPlacement = Math.min(existing.bestPlacement, placement);
+      existing.totalCorrectAnswers += p.correctAnswers ?? 0;
+    } else {
+      byName.set(key, {
+        name: p.name.trim(),
+        eventsPlayed: 1,
+        wins: placement === 1 ? 1 : 0,
+        bestPlacement: placement,
+        totalCorrectAnswers: p.correctAnswers ?? 0,
+      });
+    }
+  }
+
+  const leaderboard = [...byName.values()].sort((a, b) => b.wins - a.wins || a.bestPlacement - b.bestPlacement);
+  res.json(leaderboard);
 });
 
 eventsRouter.get("/question-banks", requireAdminCode, async (_req, res) => {

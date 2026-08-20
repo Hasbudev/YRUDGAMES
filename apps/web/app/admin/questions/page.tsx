@@ -59,7 +59,7 @@ export default function QuestionBanksPage() {
     <div className="flex min-h-screen flex-col items-center gap-6 p-8">
       <h1 className="font-display text-2xl font-bold text-gold-bright">Banques de questions</h1>
 
-      <div className="panel flex w-full max-w-lg flex-col gap-3 rounded-2xl p-4">
+      <div className="panel-ornate flex w-full max-w-lg flex-col gap-3 rounded-2xl p-4">
         <div className="flex gap-2">
           <input
             value={newBankName}

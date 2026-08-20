@@ -17,7 +17,14 @@ describe("protocolParser", () => {
     ].join("\n");
 
     const { state, log } = applyProtocolChunk(chunk, freshState());
-    expect(state.snapshot.p1.active).toEqual({ species: "Charizard", level: 100, hpPercent: 100, fainted: false, boosts: {} });
+    expect(state.snapshot.p1.active).toEqual({
+      species: "Charizard",
+      level: 100,
+      gender: "N",
+      hpPercent: 100,
+      fainted: false,
+      boosts: {},
+    });
     expect(state.snapshot.p2.remainingCount).toBe(1);
     expect(state.snapshot.field.turn).toBe(1);
     expect(log.some((l) => l.kind === "switch" && l.species === "Charizard")).toBe(true);

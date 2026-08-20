@@ -25,8 +25,8 @@ export function createInitialParserState(p1: SideMeta, p2: SideMeta): ParserStat
   return {
     sides: { p1, p2 },
     snapshot: {
-      p1: { playerId: p1.playerId, name: p1.name, active: emptyActive(), remainingCount: 0 },
-      p2: { playerId: p2.playerId, name: p2.name, active: emptyActive(), remainingCount: 0 },
+      p1: { playerId: p1.playerId, name: p1.name, active: emptyActive(), team: [], remainingCount: 0 },
+      p2: { playerId: p2.playerId, name: p2.name, active: emptyActive(), team: [], remainingCount: 0 },
       field: { weather: null, terrain: null, pseudoWeathers: [], turn: 0 },
       winnerId: null,
     },
@@ -86,7 +86,9 @@ export function applyProtocolChunk(chunk: string, state: ParserState): { state: 
         if (!key) break;
         const { hpPercent, fainted } = hpPercentFrom(parts[3] ?? "0/0");
         // Stat boosts reset on switch-out — a fresh active always starts at 0.
-        const active: BattleActivePokemon = { species: speciesOf(parts[1]), level: 100, hpPercent, fainted, boosts: {} };
+        // gender is a placeholder here — battleRunner overwrites it from the
+        // live Battle object right after, same as it does for field state.
+        const active: BattleActivePokemon = { species: speciesOf(parts[1]), level: 100, gender: "N", hpPercent, fainted, boosts: {} };
         snapshot = { ...snapshot, [key]: { ...sideFor(snapshot, key), active } };
         log.push({ kind: "switch", actor: key, species: active.species });
         break;

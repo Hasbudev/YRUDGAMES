@@ -19,6 +19,15 @@ export interface OpenEventSummary {
   name: string;
   status: "draft" | "live";
   playerCount: number;
+  createdAt: string;
+}
+
+export interface LeaderboardEntry {
+  name: string;
+  eventsPlayed: number;
+  wins: number;
+  bestPlacement: number;
+  totalCorrectAnswers: number;
 }
 
 export function getStoredAdminCode(): string | null {
@@ -57,6 +66,12 @@ export async function listOpenEvents(): Promise<OpenEventSummary[]> {
   return res.json();
 }
 
+export async function listLeaderboard(): Promise<LeaderboardEntry[]> {
+  const res = await fetch(`${SERVER_URL}/api/leaderboard`);
+  if (!res.ok) throw new Error("Failed to load leaderboard");
+  return res.json();
+}
+
 export async function listQuestionBanks(): Promise<QuestionBankSummary[]> {
   const res = await adminFetch("/api/question-banks");
   if (!res.ok) throw new Error("Failed to load question banks");
@@ -86,6 +101,9 @@ export async function getEventByCode(code: string): Promise<EventSummary | null>
 
 // --- Question bank management ---
 
+// "speed" is kept here even though the speed round feature was removed — it's
+// still a valid value in the Prisma QuestionTheme enum (legacy rows stay
+// representable) even though nothing creates or plays them anymore.
 export type QuestionTheme = "trivia" | "ost" | "stats" | "speed";
 
 export interface MelodyNoteInput {
@@ -95,8 +113,17 @@ export interface MelodyNoteInput {
 
 export type QuestionInput =
   | { theme: "trivia"; prompt: string; choices: string[]; correctIndex: number; mediaUrl?: string }
-  | { theme: "speed"; prompt: string; choices: string[]; correctIndex: number }
-  | { theme: "ost"; prompt: string; choices: string[]; correctIndex: number; mediaUrl?: string; notes?: MelodyNoteInput[] }
+  | {
+      theme: "ost";
+      prompt: string;
+      choices: string[];
+      correctIndex: number;
+      mediaUrl?: string;
+      notes?: MelodyNoteInput[];
+      youtubeId?: string;
+      startSeconds?: number;
+      clipDurationMs?: number;
+    }
   | { theme: "stats"; prompt: string; choices: [string, string]; correctIndex: 0 | 1; stat: string };
 
 export interface QuestionRecord {
@@ -107,7 +134,13 @@ export interface QuestionRecord {
   mediaUrl: string | null;
   choices: string[];
   correctIndex: number;
-  metadata: { notes?: MelodyNoteInput[]; stat?: string } | null;
+  metadata: {
+    notes?: MelodyNoteInput[];
+    stat?: string;
+    youtubeId?: string;
+    startSeconds?: number;
+    clipDurationMs?: number;
+  } | null;
 }
 
 class ApiError extends Error {

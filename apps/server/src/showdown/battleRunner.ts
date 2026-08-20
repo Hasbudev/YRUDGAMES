@@ -4,6 +4,7 @@ import { applyProtocolChunk, createInitialParserState, type ParserState } from "
 import { parseChoiceRequest } from "./choiceRequest";
 import { applyInterference } from "./interference";
 import { readFieldState } from "./fieldState";
+import { patchActiveGender, readActiveGender, readTeamRosters } from "./teamState";
 
 export interface FinalBattlePlayer {
   id: string;
@@ -61,7 +62,8 @@ export class FinalBattleRunner {
           sideStream.write("team 1");
           continue;
         }
-        const parsed = parseChoiceRequest(raw);
+        if (!this.stream.battle) continue;
+        const parsed = parseChoiceRequest(raw, this.stream.battle.dex);
         if (parsed) this.callbacks.onRequest(playerId, parsed);
       }
     }
@@ -72,9 +74,17 @@ export class FinalBattleRunner {
       const { state, log } = applyProtocolChunk(chunk, this.parserState);
       this.parserState = state;
       if (this.stream.battle) {
+        const battle = this.stream.battle;
+        const rosters = readTeamRosters(battle);
+        const snap = this.parserState.snapshot;
         this.parserState = {
           ...this.parserState,
-          snapshot: { ...this.parserState.snapshot, field: readFieldState(this.stream.battle) },
+          snapshot: {
+            ...snap,
+            field: readFieldState(battle),
+            p1: { ...snap.p1, team: rosters.p1, active: patchActiveGender(snap.p1.active, readActiveGender(battle.sides[0])) },
+            p2: { ...snap.p2, team: rosters.p2, active: patchActiveGender(snap.p2.active, readActiveGender(battle.sides[1])) },
+          },
         };
       }
       if (log.length) this.callbacks.onUpdate(this.parserState.snapshot, log);
@@ -96,6 +106,20 @@ export class FinalBattleRunner {
       return { ok: true };
     }
     return { error: "Tu ne participes pas à cette bataille." };
+  }
+
+  // The simulator itself has no forfeit concept (it's a JS library, not a
+  // server with a "player left" signal) — ending in the other finalist's
+  // favor here is the same real win condition as any other battle end, just
+  // triggered by choice instead of an empty-team loss.
+  forfeit(playerId: string): { ok: true } | { error: string } {
+    if (this.ended) return { error: "La bataille est déjà terminée." };
+    const winnerId =
+      playerId === this.player1Id ? this.player2Id : playerId === this.player2Id ? this.player1Id : null;
+    if (!winnerId) return { error: "Tu ne participes pas à cette bataille." };
+    this.ended = true;
+    this.callbacks.onEnd(winnerId);
+    return { ok: true };
   }
 
   interfere(type: InterferenceType, optionId?: string): { ok: true } | { error: string } {

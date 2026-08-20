@@ -47,6 +47,11 @@ const questionInputSchema = z.discriminatedUnion("theme", [
     correctIndex: z.number().int().min(0),
     mediaUrl: z.string().url().optional(),
     notes: z.array(melodyNoteSchema).min(1).max(64).optional(),
+    // Blind test — a real YouTube remix clip, already extracted to a bare
+    // video id client-side (no URL parsing needed here).
+    youtubeId: z.string().min(6).max(20).optional(),
+    startSeconds: z.number().int().min(0).optional(),
+    clipDurationMs: z.number().int().min(10_000).max(60_000).optional(),
   }),
   z.object({
     theme: z.literal("stats"),
@@ -58,7 +63,15 @@ const questionInputSchema = z.discriminatedUnion("theme", [
 ]);
 
 function toMetadata(data: z.infer<typeof questionInputSchema>) {
-  if (data.theme === "ost") return data.notes ? { notes: data.notes } : undefined;
+  if (data.theme === "ost") {
+    if (!data.notes && !data.youtubeId) return undefined;
+    return {
+      notes: data.notes,
+      youtubeId: data.youtubeId,
+      startSeconds: data.startSeconds,
+      clipDurationMs: data.clipDurationMs,
+    };
+  }
   if (data.theme === "stats") return { stat: data.stat };
   return undefined;
 }

@@ -12,9 +12,9 @@ import type {
   EventSummary,
   ServerToClientEvents,
 } from "@yrud/shared";
-import { INTERFERENCE_REGISTRY, PRANK_REGISTRY, SPEED_ROUND_DURATION_MS } from "@yrud/shared";
+import { INTERFERENCE_REGISTRY, PRANK_REGISTRY } from "@yrud/shared";
 import { createSocket } from "@/lib/socket-client";
-import { mergePlayerJoined, mergeSpeedProgress } from "@/lib/arena";
+import { mergePlayerJoined } from "@/lib/arena";
 import { getStoredAdminCode, storeAdminCode, clearStoredAdminCode } from "@/lib/api";
 import { ArenaView } from "@/components/yrud/ArenaView";
 import { TimerBar } from "@/components/quiz/TimerBar";
@@ -35,11 +35,12 @@ const PHASE_LABEL: Record<string, string> = {
   lobby: "en attente",
   question: "question",
   reveal: "révélation",
-  speed: "manche rapide",
   battle: "bataille finale",
   finished: "terminé",
 };
 
+// "speed" is kept here for display only — legacy question rows can still
+// carry that theme even though the speed round feature was removed.
 const THEME_LABEL: Record<string, string> = {
   trivia: "quiz de Yrud",
   ost: "devine la musique",
@@ -90,7 +91,6 @@ export function ConsoleClient({ code }: { code: string }) {
       }
     });
     socket.on("player:joined", (player) => setSnapshot((prev) => mergePlayerJoined(prev, player)));
-    socket.on("speedRound:progress", (entry) => setSnapshot((prev) => mergeSpeedProgress(prev, entry)));
     socket.on("state:sync", (snap) => {
       setSnapshot(snap);
       if (snap.activeDuel) setActiveDuel({ opponentId: snap.activeDuel.opponentId, rollLog: snap.activeDuel.rollLog });
@@ -124,7 +124,7 @@ export function ConsoleClient({ code }: { code: string }) {
     setUnlocked(true);
   }
 
-  function runAction(action: "admin:start" | "admin:reveal" | "admin:next" | "admin:startSpeedRound") {
+  function runAction(action: "admin:start" | "admin:reveal" | "admin:next" | "admin:startBlindTest") {
     const socket = socketRef.current;
     if (!socket) return;
     socket.emit(action, (res) => {
@@ -201,7 +201,6 @@ export function ConsoleClient({ code }: { code: string }) {
   if (!snapshot) return <p className="text-ink-muted">Connexion...</p>;
 
   const nameById = new Map(snapshot.players.map((p) => [p.id, p.name]));
-  const speedScoreboard = [...(snapshot.speedRound?.scoreboard ?? [])].sort((a, b) => b.correct - a.correct);
   const eligibleDuelTargets = snapshot.players.filter((p) => !p.eliminated);
 
   return (
@@ -250,11 +249,11 @@ export function ConsoleClient({ code }: { code: string }) {
           Question suivante
         </button>
         <button
-          onClick={() => runAction("admin:startSpeedRound")}
+          onClick={() => runAction("admin:startBlindTest")}
           disabled={snapshot.phase !== "lobby" && snapshot.phase !== "reveal"}
-          className="btn-purple"
+          className="btn-crimson"
         >
-          Lancer la manche rapide (60s)
+          🎵 Lancer le blind test
         </button>
       </div>
       {snapshot.phase === "question" && (
@@ -430,41 +429,6 @@ export function ConsoleClient({ code }: { code: string }) {
         <div className="flex w-full flex-col items-center gap-3">
           <BattleStage snapshot={battleSnapshot} log={battleLog} />
           <BattleLogFeed entries={battleLog} sideNames={{ p1: battleSnapshot.p1.name, p2: battleSnapshot.p2.name }} />
-        </div>
-      )}
-
-      {snapshot.phase === "speed" && snapshot.speedRound && (
-        <div className="panel w-full rounded-2xl p-4 text-sm">
-          <div className="mb-3">
-            <TimerBar
-              startedAt={snapshot.speedRound.endsAt - SPEED_ROUND_DURATION_MS}
-              timeLimitMs={SPEED_ROUND_DURATION_MS}
-            />
-          </div>
-          <p className="mb-2 font-semibold text-gold-bright">Classement en direct de la manche rapide</p>
-          {speedScoreboard.length === 0 ? (
-            <p className="text-ink-muted">En attente des réponses...</p>
-          ) : (
-            <ol className="list-decimal pl-5 text-ink">
-              {speedScoreboard.map((s) => (
-                <li key={s.playerId}>
-                  {nameById.get(s.playerId) ?? "?"} — {s.correct} bonne(s) réponse(s)
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      )}
-
-      {snapshot.lastSpeedRoundResult && snapshot.phase !== "speed" && (
-        <div className="panel w-full rounded-2xl p-4 text-sm">
-          <p className="mb-2 font-semibold text-gold-bright">Résultat de la dernière manche rapide</p>
-          <p className="mb-1 text-ink">
-            Vie bonus :{" "}
-            {snapshot.lastSpeedRoundResult.bonusWinnerIds.length > 0
-              ? snapshot.lastSpeedRoundResult.bonusWinnerIds.map((id) => nameById.get(id) ?? "?").join(", ")
-              : "personne n'a marqué"}
-          </p>
         </div>
       )}
 

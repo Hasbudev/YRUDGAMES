@@ -6,16 +6,25 @@ import gsap from "gsap";
 import type { PublicPlayer } from "@yrud/shared";
 import { playCorrect, playElimination } from "@/lib/sfx";
 import { AvatarIcon } from "./AvatarIcon";
-import { HeartRow } from "./HeartRow";
 
 interface PlayerTokenProps {
   player: PublicPlayer;
   revealVerdict?: "correct" | "wrong" | null;
   hasAnswered?: boolean;
-  speedScore?: number;
 }
 
-export function PlayerToken({ player, revealVerdict, hasAnswered, speedScore }: PlayerTokenProps) {
+// The card art is 280x360 — hearts are square, so a heart sized to X% of the
+// card's WIDTH renders at X% * (280/360) of the card's HEIGHT. Deriving the
+// row's height from that (instead of guessing a fixed height band) is what
+// keeps hearts from getting squashed/clipped regardless of how many lives a
+// player has.
+const CARD_ASPECT = 280 / 360;
+const HEART_GAP_PCT = 2;
+const HEART_ROW_BUDGET_PCT = 78; // clear of the card's bottom corner gems
+const HEART_MAX_WIDTH_PCT = 22;
+const HEARTS_CENTER_Y_PCT = 87; // matches the card art's baked heart-outline hint
+
+export function PlayerToken({ player, revealVerdict, hasAnswered }: PlayerTokenProps) {
   const ref = useRef<HTMLDivElement>(null);
   const sweepRef = useRef<HTMLDivElement>(null);
   const prevEliminated = useRef(player.eliminated);
@@ -65,59 +74,81 @@ export function PlayerToken({ player, revealVerdict, hasAnswered, speedScore }: 
   return (
     <div
       ref={ref}
-      className={`relative flex flex-col items-center gap-1 overflow-visible rounded-lg border p-3 text-center transition-colors ${
-        player.eliminated
-          ? "border-crimson/30 bg-crimson/5 opacity-40"
-          : revealVerdict === "correct"
-            ? "border-gold bg-gold/10"
-            : "border-border bg-void-deep/40"
-      }`}
+      className={`relative aspect-[280/360] w-full overflow-visible transition-opacity ${
+        player.eliminated ? "opacity-40 grayscale" : !player.connected ? "opacity-70 grayscale" : ""
+      } ${revealVerdict === "correct" ? "drop-shadow-[0_0_18px_rgba(232,193,90,0.6)]" : ""}`}
     >
+      <Image src="/play/player-card-small.png" alt="" fill sizes="200px" className="object-contain" />
+
       <div
         ref={sweepRef}
-        className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-10 w-10 -translate-x-1/2 -translate-y-1/2 opacity-0"
+        className="pointer-events-none absolute left-1/2 top-1/2 z-30 h-10 w-10 -translate-x-1/2 -translate-y-1/2 opacity-0"
       >
         <Image src="/sprites/yrud.png" alt="" width={142} height={200} className="h-full w-auto" style={{ imageRendering: "pixelated" }} />
       </div>
+
       {hasAnswered && !player.eliminated && (
         <span
           title="A répondu"
-          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gold text-[10px] font-bold text-void-deep"
+          className="absolute -right-1 -top-1 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-gold text-[10px] font-bold text-void-deep shadow"
         >
           ✓
-        </span>
-      )}
-      {speedScore !== undefined && !player.eliminated && (
-        <span
-          title="Score de la manche rapide"
-          className="absolute -right-1.5 -top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-purple px-1 text-[11px] font-bold text-white"
-        >
-          {speedScore}
         </span>
       )}
       {!player.connected && !player.eliminated && (
         <span
           title="Hors ligne — connexion perdue"
-          className="absolute -left-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-void-deep text-[10px] ring-1 ring-ink-muted"
+          className="absolute -left-1 -top-1 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-void-deep text-[10px] ring-1 ring-ink-muted"
         >
           <span className="h-2 w-2 rounded-full bg-ink-muted" />
         </span>
       )}
-      <AvatarIcon
-        avatarId={player.avatarId}
-        seed={player.id}
-        size={36}
-        className={player.eliminated ? "opacity-40 grayscale" : !player.connected ? "opacity-60 grayscale" : ""}
-      />
-      <span className="max-w-[6rem] truncate text-xs font-medium text-ink">
+
+      <div
+        className="absolute flex items-center justify-center overflow-hidden rounded-full"
+        style={{ left: "50%", top: "36%", width: "42%", aspectRatio: "1", transform: "translate(-50%, -50%)" }}
+      >
+        <AvatarIcon avatarId={player.avatarId} seed={player.id} size={36} className="h-full w-full" />
+      </div>
+
+      <span
+        className="absolute inset-x-[14%] flex items-center justify-center truncate px-1 text-center text-[11px] font-medium text-ink sm:text-xs"
+        style={{ top: "60%", height: "15%" }}
+      >
         {player.name}
         {!player.connected && !player.eliminated && <span className="ml-1 text-ink-muted">⚠</span>}
       </span>
-      {player.eliminated ? (
-        <span className="text-[10px] text-crimson-bright">éliminé(e)</span>
-      ) : (
-        <HeartRow lives={player.lives} maxLives={player.maxLives} size={12} />
-      )}
+
+      {(() => {
+        const maxLives = Math.max(player.maxLives, 1);
+        const heartWidthPct = Math.min(
+          HEART_MAX_WIDTH_PCT,
+          (HEART_ROW_BUDGET_PCT - HEART_GAP_PCT * (maxLives - 1)) / maxLives
+        );
+        const heartHeightPct = heartWidthPct * CARD_ASPECT;
+        const heartsTopPct = HEARTS_CENTER_Y_PCT - heartHeightPct / 2;
+        return (
+          <div
+            className="absolute inset-x-0 flex items-center justify-center"
+            style={{ top: `${heartsTopPct}%`, height: `${heartHeightPct}%`, gap: `${HEART_GAP_PCT}%` }}
+          >
+            {player.eliminated ? (
+              <span className="text-[10px] text-crimson-bright">éliminé(e)</span>
+            ) : (
+              Array.from({ length: maxLives }, (_, i) => (
+                <div key={i} className="relative aspect-square h-full">
+                  <Image
+                    src={i < player.lives ? "/play/heart-filled.png" : "/play/heart-empty.png"}
+                    alt=""
+                    fill
+                    className={`object-contain ${i < player.lives ? "" : "opacity-60"}`}
+                  />
+                </div>
+              ))
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

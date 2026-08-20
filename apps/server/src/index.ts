@@ -103,27 +103,9 @@ io.on("connection", async (socket) => {
     ack?.(await room.next());
   });
 
-  socket.on("admin:startSpeedRound", async (ack) => {
+  socket.on("admin:startBlindTest", async (ack) => {
     if (!requireAdmin(ack)) return;
-    ack?.(await room.startSpeedRound());
-  });
-
-  socket.on("speedRound:requestQuestion", (ack) => {
-    const playerId = socket.data.playerId;
-    if (!playerId) {
-      ack({ error: "Rejoins d'abord l'événement." });
-      return;
-    }
-    ack(room.requestSpeedQuestion(playerId));
-  });
-
-  socket.on("speedRound:answer", ({ questionId, choiceIndex }, ack) => {
-    const playerId = socket.data.playerId;
-    if (!playerId) {
-      ack({ error: "Rejoins d'abord l'événement." });
-      return;
-    }
-    ack(room.answerSpeedQuestion(playerId, questionId, choiceIndex));
+    ack?.(await room.startBlindTest());
   });
 
   socket.on("admin:taunt", async ({ message }, ack) => {
@@ -163,6 +145,15 @@ io.on("connection", async (socket) => {
       return;
     }
     ack(room.submitBattleChoice(playerId, choice));
+  });
+
+  socket.on("player:battleForfeit", (ack) => {
+    const playerId = socket.data.playerId;
+    if (!playerId) {
+      ack({ error: "Rejoins d'abord l'événement." });
+      return;
+    }
+    ack(room.forfeitBattle(playerId));
   });
 });
 

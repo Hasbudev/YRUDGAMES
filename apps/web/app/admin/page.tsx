@@ -96,7 +96,7 @@ export default function AdminHomePage() {
       <Link href="/admin/questions" className="text-sm text-ink-muted underline hover:text-ink">
         Gérer les banques de questions
       </Link>
-      <div className="panel flex w-full max-w-sm flex-col gap-3 rounded-2xl p-6">
+      <div className="panel-ornate flex w-full max-w-sm flex-col gap-3 rounded-2xl p-6">
         <label className="text-sm text-ink-muted">
           Nom de l&apos;événement
           <input

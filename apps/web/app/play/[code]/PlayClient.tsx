@@ -14,14 +14,12 @@ import type {
   GamePhase,
   PublicQuestion,
   ServerToClientEvents,
-  SpeedRoundEndedPayload,
 } from "@yrud/shared";
 import { AVATAR_REGISTRY, getPrankDefinition, type PrankDefinition } from "@yrud/shared";
 import { createSocket } from "@/lib/socket-client";
-import { mergePlayerJoined, mergeSpeedProgress } from "@/lib/arena";
+import { mergePlayerJoined } from "@/lib/arena";
 import { ArenaView } from "@/components/yrud/ArenaView";
 import { QuestionCard } from "@/components/quiz/QuestionCard";
-import { SpeedRoundView } from "@/components/speed/SpeedRoundView";
 import { TauntOverlay } from "@/components/yrud/TauntOverlay";
 import { PrankOverlay } from "@/components/prank/PrankOverlay";
 import { DuelStage } from "@/components/duel/DuelStage";
@@ -34,6 +32,7 @@ import { BattleLogFeed } from "@/components/battle/BattleLogFeed";
 import { MoveChooser } from "@/components/battle/MoveChooser";
 import { InterferenceCutIn } from "@/components/battle/InterferenceCutIn";
 import { EndGameSummary } from "@/components/summary/EndGameSummary";
+import { RevealCard } from "@/components/quiz/RevealCard";
 
 function storageKey(code: string) {
   return `yrud:playerId:${code}`;
@@ -43,11 +42,6 @@ const GAME_START_LINES = [
   "Que la chasse commence... un seul faux pas et vous quittez mon arène.",
   "Bienvenue dans mon arène. Voyons qui tremble en premier.",
   "Vos vies m'appartiennent déjà. Prouvez-moi le contraire.",
-];
-const SPEED_LINES = [
-  "Manche rapide ! Une seule erreur et c'est terminé pour vous.",
-  "Vite, vite... l'arène n'attend pas les lents.",
-  "Plus vite que votre ombre, ou vous êtes déjà éliminé(e).",
 ];
 const ELIMINATION_LINES = [
   "Un de moins. L'arène se resserre.",
@@ -75,8 +69,6 @@ export function PlayClient({ code }: { code: string }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [winnerIds, setWinnerIds] = useState<string[] | null>(null);
   const [summary, setSummary] = useState<EventSummary | null>(null);
-  const [speedRoundEndsAt, setSpeedRoundEndsAt] = useState<number | null>(null);
-  const [speedRoundResult, setSpeedRoundResult] = useState<SpeedRoundEndedPayload | undefined>(undefined);
   const [activeTaunt, setActiveTaunt] = useState<{ message: string; key: number } | null>(null);
   const [activePrank, setActivePrank] = useState<{ def: PrankDefinition; text: string; key: number } | null>(null);
   const [activeDuel, setActiveDuel] = useState<ActiveDuel | null>(null);
@@ -135,8 +127,6 @@ export function PlayClient({ code }: { code: string }) {
       setSnapshot(snap);
       setQuestion(snap.question ?? null);
       if (snap.phase !== "question") setSelectedIndex(null);
-      if (snap.phase === "speed" && snap.speedRound) setSpeedRoundEndsAt(snap.speedRound.endsAt);
-      if (snap.lastSpeedRoundResult) setSpeedRoundResult(snap.lastSpeedRoundResult);
       if (snap.activeDuel) setActiveDuel({ opponentId: snap.activeDuel.opponentId, rollLog: snap.activeDuel.rollLog });
       if (snap.battle ?? snap.lastBattleSnapshot) setBattleSnapshot(snap.battle ?? snap.lastBattleSnapshot ?? null);
       if (snap.battlePlan) setBattlePlan(snap.battlePlan);
@@ -153,14 +143,6 @@ export function PlayClient({ code }: { code: string }) {
         fireCaption(ELIMINATION_LINES);
       }
     });
-    socket.on("speedRound:started", ({ endsAt }) => {
-      setSpeedRoundResult(undefined);
-      setSpeedRoundEndsAt(endsAt);
-      setMood("tense");
-      fireCaption(SPEED_LINES);
-    });
-    socket.on("speedRound:progress", (entry) => setSnapshot((prev) => mergeSpeedProgress(prev, entry)));
-    socket.on("speedRound:ended", (payload) => setSpeedRoundResult(payload));
     socket.on("game:finished", ({ winnerIds, summary }) => {
       setWinnerIds(winnerIds);
       setSummary(summary);
@@ -205,9 +187,6 @@ export function PlayClient({ code }: { code: string }) {
       if (phase === "question" && prev === "lobby") {
         fireCaption(GAME_START_LINES);
       }
-      if (phase !== "speed" && prev === "speed" && phase !== "finished") {
-        setMood("calm");
-      }
       if (phase === "battle") {
         setMood("duel");
       }
@@ -247,7 +226,7 @@ export function PlayClient({ code }: { code: string }) {
 
   if (!playerId) {
     return (
-      <div className="panel flex w-full max-w-sm flex-col gap-4 rounded-2xl p-6">
+      <div className="panel-ornate flex w-full max-w-sm flex-col gap-4 rounded-2xl p-6">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -303,7 +282,7 @@ export function PlayClient({ code }: { code: string }) {
               winner={activeDuel.winner}
               onDone={() => {
                 setActiveDuel(null);
-                setMood(snapshot?.phase === "speed" ? "tense" : "calm");
+                setMood("calm");
               }}
             />
           );
@@ -341,7 +320,7 @@ export function PlayClient({ code }: { code: string }) {
     );
   }
 
-  if (battleSection && snapshot?.phase !== "question" && snapshot?.phase !== "speed") {
+  if (battleSection && snapshot?.phase !== "question") {
     return (
       <div className="flex w-full flex-col items-center gap-6">
         {overlays}
@@ -369,21 +348,20 @@ export function PlayClient({ code }: { code: string }) {
         </div>
       )}
       <div key={snapshot?.phase ?? "waiting"} className="animate-scene-enter flex w-full flex-col items-center">
-        {snapshot?.phase === "speed" && socket && speedRoundEndsAt ? (
-          <SpeedRoundView
-            socket={socket}
-            endsAt={speedRoundEndsAt}
-            eliminated={Boolean(myself?.eliminated)}
-            result={speedRoundResult}
-            myPlayerId={playerId}
-          />
-        ) : question && snapshot?.phase === "question" ? (
+        {question && snapshot?.phase === "question" ? (
           <QuestionCard
             key={question.id}
             question={question}
             disabled={selectedIndex !== null || Boolean(myself?.eliminated)}
             selectedIndex={selectedIndex}
             onAnswer={answer}
+          />
+        ) : question && snapshot?.phase === "reveal" && snapshot.lastReveal ? (
+          <RevealCard
+            key={`reveal-${question.id}`}
+            question={question}
+            correctIndex={snapshot.lastReveal.correctIndex}
+            myResult={snapshot.lastReveal.results.find((r) => r.playerId === playerId)}
           />
         ) : (
           <p className="text-sm text-ink-muted">En attente que Yrud lance la prochaine question...</p>

@@ -61,18 +61,22 @@ export function OstPlayer({ notes, mediaUrl }: OstPlayerProps) {
   const disabled = playing || (!mediaUrl && (!notes || notes.length === 0));
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="flex h-16 items-end gap-1">
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-gold/30 bg-void-deep/50 px-6 py-5 shadow-[inset_0_1px_0_rgba(232,193,90,0.1)]">
+      <div className="flex h-16 items-end gap-1.5">
         {bars.map((h, i) => (
           <div
             key={i}
-            className={`w-2 rounded-t transition-transform duration-75 ${playing ? "bg-gold" : "bg-white/10"}`}
+            className={`w-2.5 rounded-t-full transition-transform duration-75 ${
+              playing
+                ? "bg-gradient-to-t from-gold to-gold-bright shadow-[0_0_8px_rgba(232,193,90,0.6)]"
+                : "bg-white/10"
+            }`}
             style={{ height: "100%", transform: `scaleY(${h})`, transformOrigin: "bottom" }}
           />
         ))}
       </div>
       <button onClick={play} disabled={disabled} className="btn-gold rounded-full">
-        {playing ? "Lecture..." : "▶ Écouter l'extrait"}
+        {playing ? "🎵 Lecture..." : "▶ Écouter l'extrait"}
       </button>
     </div>
   );

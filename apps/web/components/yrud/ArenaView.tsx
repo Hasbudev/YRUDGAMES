@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { ArenaSnapshot } from "@yrud/shared";
 import { PlayerToken } from "./PlayerToken";
 
@@ -15,22 +16,23 @@ export function ArenaView({ snapshot }: ArenaViewProps) {
     }
   }
   const answeredSet = new Set(snapshot.answeredPlayerIds);
-  const speedScoreByPlayer = new Map(
-    (snapshot.speedRound?.scoreboard ?? []).map((s) => [s.playerId, s.correct])
-  );
   const aliveCount = snapshot.players.filter((p) => !p.eliminated).length;
 
   return (
     <div className="w-full max-w-2xl">
-      <h2 className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-gold-dim">
-        <span>Arène — {aliveCount} en vie</span>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="relative h-8 w-36 shrink-0 sm:h-9 sm:w-40">
+            <Image src="/play/arene-badge.png" alt="" fill sizes="160px" className="object-contain" />
+          </div>
+          <span className="font-display text-sm font-bold text-gold-bright sm:text-base">{aliveCount}</span>
+        </div>
         {snapshot.phase === "question" && (
-          <span>
+          <span className="text-xs text-ink-muted">
             {answeredSet.size} / {aliveCount} ont répondu
           </span>
         )}
-        {snapshot.phase === "speed" && <span>Manche rapide en cours</span>}
-      </h2>
+      </div>
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
         {snapshot.players.map((player) => (
           <PlayerToken
@@ -38,7 +40,6 @@ export function ArenaView({ snapshot }: ArenaViewProps) {
             player={player}
             revealVerdict={verdictByPlayer.get(player.id) ?? null}
             hasAnswered={snapshot.phase === "question" && answeredSet.has(player.id)}
-            speedScore={snapshot.phase === "speed" ? (speedScoreByPlayer.get(player.id) ?? 0) : undefined}
           />
         ))}
       </div>

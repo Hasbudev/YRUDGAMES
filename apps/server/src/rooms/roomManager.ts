@@ -35,12 +35,15 @@ async function loadRoom(io: IoServer, code: string): Promise<EventRoom | null> {
     timeLimitMs: DEFAULT_TIME_LIMIT_MS,
   }));
 
-  // The speed round pulls independently from its own pool — it isn't part of
-  // the main one-question-at-a-time sequence.
-  const mainQuestions = allQuestions.filter((q) => q.theme !== "speed");
-  const speedQuestions = allQuestions.filter((q) => q.theme === "speed");
+  // Blind test pulls independently from its own pool — it's not part of the
+  // main one-question-at-a-time sequence; the admin triggers it as a
+  // side-activity instead of via "next question". Any legacy "speed"-themed
+  // rows (the removed speed round) are simply excluded — dead data, not fed
+  // into any pool.
+  const mainQuestions = allQuestions.filter((q) => q.theme !== "speed" && q.theme !== "ost");
+  const blindTestQuestions = allQuestions.filter((q) => q.theme === "ost");
 
-  const room = new EventRoom(io, event.id, event.code, mainQuestions, speedQuestions, event.livesPerPlayer);
+  const room = new EventRoom(io, event.id, event.code, mainQuestions, blindTestQuestions, event.livesPerPlayer);
   rooms.set(code, room);
   return room;
 }

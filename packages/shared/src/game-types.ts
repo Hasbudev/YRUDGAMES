@@ -1,8 +1,11 @@
 import type { BattleSnapshot } from "./showdown-types";
 import type { DuelRoll } from "./duel-types";
 
-export type GamePhase = "lobby" | "question" | "reveal" | "speed" | "battle" | "finished";
+export type GamePhase = "lobby" | "question" | "reveal" | "battle" | "finished";
 
+// "speed" is kept here even though the speed round feature was removed —
+// it's still a valid value in the Prisma QuestionTheme enum (any legacy rows
+// stay representable) even though nothing creates or plays them anymore.
 export type QuestionTheme = "trivia" | "ost" | "stats" | "speed";
 
 // A tiny synthesized melody (Web Audio oscillator notes) standing in for a
@@ -13,8 +16,11 @@ export interface MelodyNote {
 }
 
 export interface QuestionMetadata {
-  notes?: MelodyNote[]; // ost theme
+  notes?: MelodyNote[]; // ost theme — synthesized fallback when no youtubeId
   stat?: string; // stats theme, e.g. "Speed"
+  youtubeId?: string; // ost theme — blind test, real remix clip
+  startSeconds?: number; // clip start offset within the video
+  clipDurationMs?: number; // default 25000 (20-30s per the brief)
 }
 
 export interface PublicPlayer {
@@ -54,21 +60,6 @@ export interface RevealResult {
   results: PlayerRevealResult[];
 }
 
-export interface SpeedRoundScoreEntry {
-  playerId: string;
-  correct: number;
-}
-
-export interface SpeedRoundSnapshot {
-  endsAt: number;
-  scoreboard: SpeedRoundScoreEntry[];
-}
-
-export interface SpeedRoundEndedPayload {
-  scoreboard: SpeedRoundScoreEntry[];
-  bonusWinnerIds: string[];
-}
-
 export interface ArenaSnapshot {
   phase: GamePhase;
   players: PublicPlayer[];
@@ -76,19 +67,10 @@ export interface ArenaSnapshot {
   lastReveal?: RevealResult;
   // Who has answered the current question — never includes what they chose.
   answeredPlayerIds: string[];
-  speedRound?: SpeedRoundSnapshot;
-  lastSpeedRoundResult?: SpeedRoundEndedPayload;
   battle?: BattleSnapshot;
   lastBattleSnapshot?: BattleSnapshot;
   battlePlan?: string;
   // Lets a client that (re)connects mid-duel resync instead of missing the
   // spectacle entirely — only present while the duel is still rolling.
   activeDuel?: { opponentId: string; rollLog: DuelRoll[] };
-}
-
-// A single speed-round question sent to one player at a time via the pull loop.
-export interface SpeedQuestion {
-  id: string;
-  prompt: string;
-  choices: string[];
 }

@@ -77,6 +77,11 @@ model Player {
   lives       Int
   eliminated  Boolean  @default(false)
   eliminatedRound Int?
+  // Final standing, written once when the event finishes (EventRoom.computeSummary) —
+  // null until then. Mirrors shared/summary-types.ts's StandingEntry fields so the
+  // live end-game summary and the persisted /api/leaderboard stay in sync.
+  placement       Int?
+  correctAnswers  Int?
   joinedAt    DateTime @default(now())
 
   answers AnswerLog[]

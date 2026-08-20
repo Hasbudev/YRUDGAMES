@@ -1,4 +1,9 @@
+import type { Battle } from "pokemon-showdown";
 import type { BattleChoiceRequest, BattleMoveOption, BattleSwitchOption } from "@yrud/shared";
+
+// ModdedDex itself isn't part of the package's public export surface — this
+// indexed-access type is the same type battle.dex actually has.
+type Dex = Battle["dex"];
 
 // Showdown's own request JSON (from a `|request|` protocol line) — trimmed
 // to the fields we actually read. Loosely typed on purpose: it's raw
@@ -23,7 +28,7 @@ interface RawChoiceRequest {
   side?: { pokemon: RawPokemonEntry[] };
 }
 
-export function parseChoiceRequest(raw: RawChoiceRequest): BattleChoiceRequest | null {
+export function parseChoiceRequest(raw: RawChoiceRequest, dex: Dex): BattleChoiceRequest | null {
   if (!raw || raw.wait) return null;
 
   const switchOptions: BattleSwitchOption[] = (raw.side?.pokemon ?? []).map((p, i) => ({
@@ -46,6 +51,7 @@ export function parseChoiceRequest(raw: RawChoiceRequest): BattleChoiceRequest |
     const moves: BattleMoveOption[] = (activeMon?.moves ?? []).map((m) => ({
       id: m.id,
       name: m.move,
+      type: dex.moves.get(m.id).type,
       pp: m.pp ?? 0,
       maxPp: m.maxpp ?? 0,
       disabled: Boolean(m.disabled),

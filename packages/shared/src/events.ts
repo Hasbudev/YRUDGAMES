@@ -1,15 +1,7 @@
 // Typed Socket.IO event contract shared between apps/web and apps/server.
 // Later phases extend this in place (battle:* ...).
 
-import type {
-  ArenaSnapshot,
-  PublicPlayer,
-  PublicQuestion,
-  RevealResult,
-  SpeedQuestion,
-  SpeedRoundEndedPayload,
-  SpeedRoundScoreEntry,
-} from "./game-types";
+import type { ArenaSnapshot, PublicPlayer, PublicQuestion, RevealResult } from "./game-types";
 import type { DuelEndedPayload, DuelRoll, DuelStartedPayload } from "./duel-types";
 import type { BattleChoiceRequest, BattleLogEntry, BattleSnapshot, InterferenceType } from "./showdown-types";
 import type { EventSummary } from "./summary-types";
@@ -21,9 +13,6 @@ export interface ServerToClientEvents {
   "question:reveal": (result: RevealResult) => void;
   "game:finished": (payload: { winnerIds: string[]; summary: EventSummary }) => void;
   "error:message": (payload: { message: string }) => void;
-  "speedRound:started": (payload: { endsAt: number }) => void;
-  "speedRound:progress": (payload: SpeedRoundScoreEntry) => void;
-  "speedRound:ended": (payload: SpeedRoundEndedPayload) => void;
   "yrud:taunt": (payload: { message: string }) => void;
   "prank:trigger": (payload: { prankId: string; text: string }) => void;
   "duel:start": (payload: DuelStartedPayload) => void;
@@ -47,16 +36,7 @@ export interface ClientToServerEvents {
   "admin:start": (ack?: (res: { ok: true } | { error: string }) => void) => void;
   "admin:reveal": (ack?: (res: { ok: true } | { error: string }) => void) => void;
   "admin:next": (ack?: (res: { ok: true } | { error: string }) => void) => void;
-  "admin:startSpeedRound": (ack?: (res: { ok: true } | { error: string }) => void) => void;
-  "speedRound:requestQuestion": (
-    ack: (
-      res: { question: SpeedQuestion } | { done: true } | { busted: true } | { error: string }
-    ) => void
-  ) => void;
-  "speedRound:answer": (
-    payload: { questionId: string; choiceIndex: number },
-    ack: (res: { correct: boolean } | { error: string }) => void
-  ) => void;
+  "admin:startBlindTest": (ack?: (res: { ok: true } | { error: string }) => void) => void;
   "admin:taunt": (payload: { message: string }, ack?: (res: { ok: true } | { error: string }) => void) => void;
   "admin:triggerPrank": (
     payload: { prankId: string },
@@ -82,6 +62,7 @@ export interface ClientToServerEvents {
     payload: { choice: string },
     ack: (res: { ok: true } | { error: string }) => void
   ) => void;
+  "player:battleForfeit": (ack: (res: { ok: true } | { error: string }) => void) => void;
 }
 
 export interface InterServerEvents {}

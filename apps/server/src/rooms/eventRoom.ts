@@ -10,12 +10,9 @@ import type {
   RevealResult,
   ServerToClientEvents,
   SocketData,
-  SpeedQuestion,
-  SpeedRoundEndedPayload,
 } from "@yrud/shared";
 import {
   INTERFERENCE_REGISTRY,
-  SPEED_ROUND_DURATION_MS,
   TAUNT_DISPLAY_MS,
   getPrankDefinition,
   pickPrankText,
@@ -24,7 +21,6 @@ import {
 import { prisma } from "../db/client";
 import * as engine from "../game/engine";
 import type { GameState, InternalQuestion } from "../game/types";
-import * as speedEngine from "../speed/engine";
 import * as duelEngine from "../duel/engine";
 import type { DuelState } from "../duel/engine";
 import { FinalBattleRunner } from "../showdown/battleRunner";
@@ -40,19 +36,6 @@ type IoServer = Server<
 export const DEFAULT_TIME_LIMIT_MS = 20_000;
 const DUEL_ROLL_DELAY_MS = 1200;
 
-interface SpeedPlayerProgress {
-  correct: number;
-  askedIds: string[];
-  // Sudden death — one wrong answer ends this player's run for the round.
-  busted: boolean;
-}
-
-interface SpeedRoundState {
-  endsAt: number;
-  timer: NodeJS.Timeout;
-  progress: Record<string, SpeedPlayerProgress>;
-}
-
 export class EventRoom {
   readonly eventId: string;
   readonly code: string;
@@ -61,9 +44,6 @@ export class EventRoom {
   private state: GameState;
   private lastReveal?: RevealResult;
   private autoRevealTimer: NodeJS.Timeout | null = null;
-  private speedQuestions: InternalQuestion[];
-  private speedRoundState: SpeedRoundState | null = null;
-  private lastSpeedRoundResult?: SpeedRoundEndedPayload;
   private duelState: DuelState | null = null;
   private livesPerPlayer: number;
   private avatarByPlayer: Record<string, string> = {};
@@ -75,13 +55,21 @@ export class EventRoom {
   // First-eliminated-first — reversed at game end so the last player
   // standing (besides the winner) places 2nd, and so on down the ranking.
   private eliminationOrder: string[] = [];
+  private blindTestPool: InternalQuestion[];
+  // Sequential pointer, not random — "next blind test" mirrors "next
+  // question" and the admin already controls ordering via the question
+  // manager's up/down arrows.
+  private blindTestIndex = 0;
+  private blindTestState: { question: InternalQuestion; answers: Record<string, number>; revealed: boolean } | null =
+    null;
+  private blindTestStartedAt: number | null = null;
 
   constructor(
     io: IoServer,
     eventId: string,
     code: string,
     questions: InternalQuestion[],
-    speedQuestions: InternalQuestion[],
+    blindTestQuestions: InternalQuestion[],
     livesPerPlayer: number
   ) {
     this.io = io;
@@ -89,7 +77,7 @@ export class EventRoom {
     this.code = code;
     this.socketRoom = `event:${code}`;
     this.state = engine.createInitialState(questions, livesPerPlayer);
-    this.speedQuestions = speedQuestions;
+    this.blindTestPool = blindTestQuestions;
     this.livesPerPlayer = livesPerPlayer;
   }
 
@@ -107,7 +95,10 @@ export class EventRoom {
 
   private publicQuestion(): PublicQuestion | undefined {
     const q = engine.currentQuestion(this.state);
-    if (!q || this.state.phase !== "question") return undefined;
+    // Also kept through "reveal" — clients need the prompt/choices on screen
+    // for the reveal beat (correctIndex is separately gated behind the
+    // question:reveal event itself, so this doesn't leak anything early).
+    if (!q || (this.state.phase !== "question" && this.state.phase !== "reveal")) return undefined;
     return {
       id: q.id,
       theme: q.theme,
@@ -122,23 +113,47 @@ export class EventRoom {
     };
   }
 
+  // Mirrors publicQuestion() but sources the live blind-test question
+  // instead of the main sequence — same PublicQuestion shape, so the client
+  // needs zero new phase-branching to render it.
+  private blindTestQuestion(): PublicQuestion | undefined {
+    const bt = this.blindTestState;
+    if (!bt) return undefined;
+    const q = bt.question;
+    const clipDurationMs = q.metadata?.clipDurationMs ?? 25_000;
+    return {
+      id: q.id,
+      theme: q.theme,
+      prompt: q.prompt,
+      choices: q.choices,
+      metadata: q.metadata,
+      mediaUrl: q.mediaUrl,
+      timeLimitMs: clipDurationMs + 20_000,
+      startedAt: this.blindTestStartedAt ?? Date.now(),
+      questionIndex: this.state.questionIndex,
+      questionCount: this.state.questions.length,
+    };
+  }
+
   snapshot(): ArenaSnapshot {
     return {
-      phase: this.battleRunner ? "battle" : this.speedRoundState ? "speed" : this.state.phase,
+      phase: this.battleRunner
+        ? "battle"
+        : this.blindTestState
+          ? this.blindTestState.revealed
+            ? "reveal"
+            : "question"
+          : this.state.phase,
       players: this.state.playerOrder.map((id) => this.toPublicPlayer(this.state.players[id])),
-      question: this.publicQuestion(),
+      question: this.blindTestState ? this.blindTestQuestion() : this.publicQuestion(),
       lastReveal: this.lastReveal,
-      answeredPlayerIds: this.state.phase === "question" ? Object.keys(this.state.answers) : [],
-      speedRound: this.speedRoundState
-        ? {
-            endsAt: this.speedRoundState.endsAt,
-            scoreboard: Object.entries(this.speedRoundState.progress).map(([playerId, p]) => ({
-              playerId,
-              correct: p.correct,
-            })),
-          }
-        : undefined,
-      lastSpeedRoundResult: this.lastSpeedRoundResult,
+      answeredPlayerIds: this.blindTestState
+        ? this.blindTestState.revealed
+          ? []
+          : Object.keys(this.blindTestState.answers)
+        : this.state.phase === "question"
+          ? Object.keys(this.state.answers)
+          : [],
       battle: this.battleRunner?.snapshot,
       lastBattleSnapshot: this.lastBattleSnapshot,
       battlePlan: this.battlePlan,
@@ -194,7 +209,7 @@ export class EventRoom {
   }
 
   // Taunts/pranks render as full-screen overlays that block interaction —
-  // without this, they'd silently eat into the question/speed-round clock.
+  // without this, they'd silently eat into the question clock.
   // Shift the deadline forward by exactly how long the overlay is on screen
   // so nobody loses real time to Yrud's interruptions.
   private extendActiveTimers(extraMs: number) {
@@ -209,17 +224,7 @@ export class EventRoom {
       }
     }
 
-    if (this.speedRoundState) {
-      const roundState = this.speedRoundState;
-      roundState.endsAt += extraMs;
-      clearTimeout(roundState.timer);
-      const remaining = Math.max(0, roundState.endsAt - Date.now());
-      roundState.timer = setTimeout(() => {
-        this.endSpeedRound().catch((err) => console.error(`[${this.code}] speed round end failed:`, err));
-      }, remaining);
-    }
-
-    if (this.state.phase === "question" || this.speedRoundState) {
+    if (this.state.phase === "question") {
       this.broadcastSnapshot();
     }
   }
@@ -247,6 +252,14 @@ export class EventRoom {
   }
 
   submitAnswer(playerId: string, questionId: string, choiceIndex: number) {
+    if (this.blindTestState && !this.blindTestState.revealed) {
+      if (this.blindTestState.question.id !== questionId) return;
+      if (playerId in this.blindTestState.answers) return;
+      this.blindTestState.answers[playerId] = choiceIndex;
+      this.broadcastSnapshot();
+      return;
+    }
+
     const question = engine.currentQuestion(this.state);
     if (!question || question.id !== questionId) return;
     if (playerId in this.state.answers) return; // already answered — nothing changes
@@ -275,6 +288,7 @@ export class EventRoom {
   }
 
   async reveal(): Promise<{ ok: true } | { error: string }> {
+    if (this.blindTestState && !this.blindTestState.revealed) return this.revealBlindTest();
     if (this.state.phase !== "question") return { error: "Aucune question n'est en cours." };
     this.clearAutoReveal();
 
@@ -315,6 +329,12 @@ export class EventRoom {
   }
 
   async next(): Promise<{ ok: true } | { error: string }> {
+    if (this.blindTestState?.revealed) {
+      this.blindTestState = null;
+      this.blindTestStartedAt = null;
+      this.broadcastSnapshot();
+      return { ok: true };
+    }
     if (this.state.phase !== "reveal") return { error: "Révèle d'abord la question en cours." };
 
     this.state = engine.advance(this.state, Date.now());
@@ -323,6 +343,18 @@ export class EventRoom {
       await prisma.event.update({ where: { id: this.eventId }, data: { status: "finished" } });
       const winnerIds = engine.winners(this.state);
       const summary = await this.computeSummary(winnerIds);
+      // Persist final standings — computeSummary's result otherwise only ever
+      // reaches whoever is connected at this exact moment (broadcast below),
+      // and is lost once this room is dropped. The public /api/leaderboard
+      // reads these two columns back.
+      await prisma.$transaction(
+        summary.standings.map((s) =>
+          prisma.player.update({
+            where: { id: s.playerId },
+            data: { placement: s.placement, correctAnswers: s.correctAnswers },
+          })
+        )
+      );
       this.io.to(this.socketRoom).emit("game:finished", { winnerIds, summary });
     } else {
       const question = this.publicQuestion();
@@ -336,90 +368,81 @@ export class EventRoom {
     return { ok: true };
   }
 
-  async startSpeedRound(): Promise<{ ok: true } | { error: string }> {
-    if (this.speedRoundState) return { error: "La manche rapide est déjà en cours." };
-    if (this.state.phase === "finished") return { error: "L'événement est déjà terminé." };
-    if (this.speedQuestions.length === 0) return { error: "Aucune question de manche rapide configurée." };
+  // "Next blind test" — an admin-triggered side-activity pulling sequentially
+  // from its own pool instead of being woven into the main "next question"
+  // sequence.
+  async startBlindTest(): Promise<{ ok: true } | { error: string }> {
+    if (this.blindTestState) return { error: "Un blind test est déjà en cours." };
+    if (this.state.phase !== "lobby" && this.state.phase !== "reveal") {
+      return { error: "Impossible de lancer un blind test maintenant." };
+    }
+    if (this.blindTestIndex >= this.blindTestPool.length) {
+      return { error: "Plus de blind test disponible." };
+    }
 
-    const endsAt = Date.now() + SPEED_ROUND_DURATION_MS;
-    const timer = setTimeout(() => {
-      this.endSpeedRound().catch((err) => console.error(`[${this.code}] speed round end failed:`, err));
-    }, SPEED_ROUND_DURATION_MS);
-    this.speedRoundState = { endsAt, timer, progress: {} };
+    const question = this.blindTestPool[this.blindTestIndex];
+    this.blindTestIndex += 1;
+    this.blindTestState = { question, answers: {}, revealed: false };
+    this.blindTestStartedAt = Date.now();
+    this.clearAutoReveal();
 
-    this.io.to(this.socketRoom).emit("speedRound:started", { endsAt });
+    const publicQ = this.blindTestQuestion();
+    if (publicQ) {
+      this.io.to(this.socketRoom).emit("question:new", publicQ);
+      this.scheduleAutoReveal(publicQ.timeLimitMs);
+    }
     this.broadcastSnapshot();
     return { ok: true };
   }
 
-  requestSpeedQuestion(
-    playerId: string
-  ): { question: SpeedQuestion } | { done: true } | { busted: true } | { error: string } {
-    const roundState = this.speedRoundState;
-    if (!roundState) return { error: "Aucune manche rapide en cours." };
-    const player = this.state.players[playerId];
-    if (!player || player.eliminated) return { error: "Non éligible pour la manche rapide." };
-    if (Date.now() >= roundState.endsAt) return { done: true };
+  private async revealBlindTest(): Promise<{ ok: true } | { error: string }> {
+    const bt = this.blindTestState;
+    if (!bt) return { error: "Aucun blind test en cours." };
+    this.clearAutoReveal();
 
-    const progress = roundState.progress[playerId] ?? { correct: 0, askedIds: [], busted: false };
-    roundState.progress[playerId] = progress;
+    const results = this.state.playerOrder
+      .filter((id) => !this.state.players[id].eliminated)
+      .map((playerId) => {
+        const player = this.state.players[playerId];
+        const choiceIndex = bt.answers[playerId] ?? null;
+        const correct = choiceIndex === bt.question.correctIndex;
+        const lives = correct ? player.lives : Math.max(0, player.lives - 1);
+        const eliminated = !correct && lives === 0;
+        return { playerId, choiceIndex, correct, livesRemaining: lives, eliminated };
+      });
 
-    if (progress.busted) return { busted: true };
-
-    const question = speedEngine.pickNextSpeedQuestion(this.speedQuestions, progress.askedIds);
-    if (!question) return { done: true };
-    progress.askedIds.push(question.id);
-    return { question: { id: question.id, prompt: question.prompt, choices: question.choices } };
-  }
-
-  answerSpeedQuestion(
-    playerId: string,
-    questionId: string,
-    choiceIndex: number
-  ): { correct: boolean } | { error: string } {
-    const roundState = this.speedRoundState;
-    if (!roundState) return { error: "Aucune manche rapide en cours." };
-    const question = this.speedQuestions.find((q) => q.id === questionId);
-    if (!question) return { error: "Question inconnue." };
-    const progress = roundState.progress[playerId];
-    if (!progress || !progress.askedIds.includes(questionId)) {
-      return { error: "Cette question ne t'a pas été posée." };
+    for (const r of results) {
+      const player = this.state.players[r.playerId];
+      const updated = { ...player, lives: r.livesRemaining, eliminated: r.eliminated };
+      this.state = { ...this.state, players: { ...this.state.players, [r.playerId]: updated } };
+      if (r.eliminated) this.eliminationOrder.push(r.playerId);
     }
 
-    const correct = speedEngine.gradeSpeedAnswer(question, choiceIndex);
-    if (correct) {
-      progress.correct += 1;
-      this.io.to(this.socketRoom).emit("speedRound:progress", { playerId, correct: progress.correct });
-    } else {
-      progress.busted = true;
-    }
-    return { correct };
-  }
+    const round = await prisma.round.create({
+      data: { eventId: this.eventId, theme: bt.question.theme, index: this.state.questionIndex },
+    });
+    await prisma.answerLog.createMany({
+      data: results.map((r) => ({
+        roundId: round.id,
+        playerId: r.playerId,
+        questionId: bt.question.id,
+        correct: r.correct,
+        responseMs: 0,
+      })),
+    });
+    await Promise.all(
+      results.map((r) =>
+        prisma.player.update({ where: { id: r.playerId }, data: { lives: r.livesRemaining, eliminated: r.eliminated } })
+      )
+    );
 
-  private async endSpeedRound() {
-    const roundState = this.speedRoundState;
-    if (!roundState) return;
-    clearTimeout(roundState.timer);
-    this.speedRoundState = null;
+    const result: RevealResult = { correctIndex: bt.question.correctIndex, results };
+    this.lastReveal = result;
+    bt.revealed = true;
 
-    const scoreboard = Object.entries(roundState.progress).map(([playerId, p]) => ({
-      playerId,
-      correct: p.correct,
-    }));
-    const bonusWinnerIds = speedEngine.computeBonusWinners(scoreboard);
-
-    for (const playerId of bonusWinnerIds) {
-      const player = this.state.players[playerId];
-      if (!player) continue;
-      const updated = { ...player, lives: player.lives + 1 };
-      this.state = { ...this.state, players: { ...this.state.players, [playerId]: updated } };
-      await prisma.player.update({ where: { id: playerId }, data: { lives: updated.lives } });
-    }
-
-    const payload: SpeedRoundEndedPayload = { scoreboard, bonusWinnerIds };
-    this.lastSpeedRoundResult = payload;
-    this.io.to(this.socketRoom).emit("speedRound:ended", payload);
+    this.io.to(this.socketRoom).emit("question:reveal", result);
     this.broadcastSnapshot();
+    return { ok: true };
   }
 
   async sendTaunt(message: string): Promise<{ ok: true } | { error: string }> {
@@ -561,6 +584,11 @@ export class EventRoom {
     return this.battleRunner.submitChoice(playerId, choice);
   }
 
+  forfeitBattle(playerId: string): { ok: true } | { error: string } {
+    if (!this.battleRunner) return { error: "Aucune bataille finale en cours." };
+    return this.battleRunner.forfeit(playerId);
+  }
+
   async applyBattleInterference(
     type: InterferenceType,
     optionId?: string
@@ -616,7 +644,6 @@ export class EventRoom {
     return {
       standings,
       totalQuestions: this.state.questions.length,
-      speedRoundBonusWinnerIds: this.lastSpeedRoundResult?.bonusWinnerIds ?? [],
       duelRecord: {
         yrudWins: duelLogs.filter((d) => d.winner === "yrud").length,
         opponentWins: duelLogs.filter((d) => d.winner === "opponent").length,

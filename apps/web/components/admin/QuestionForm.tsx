@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import type { QuestionInput, QuestionRecord, QuestionTheme } from "@/lib/api";
 
-const THEME_LABEL: Record<QuestionTheme, string> = {
+// "speed" is intentionally excluded — the speed round feature was removed,
+// so admins can no longer create new speed-themed questions (legacy rows
+// stay representable in the Prisma enum, but aren't selectable here).
+const THEME_LABEL: Record<Exclude<QuestionTheme, "speed">, string> = {
   trivia: "Quiz de Yrud",
   ost: "Devine la musique",
   stats: "Duel de stats",
-  speed: "Manche rapide",
 };
 
 function parseNotes(text: string): { freq: number; durationMs: number }[] | undefined {
@@ -27,6 +29,22 @@ function serializeNotes(notes?: { freq: number; durationMs: number }[]): string 
   return (notes ?? []).map((n) => `${n.freq}:${n.durationMs}`).join(", ");
 }
 
+// Accepts watch?v=, youtu.be/, embed/, and shorts/ URL forms — also passes
+// through a bare 11-char id so re-editing an existing question round-trips.
+function extractYouTubeId(input: string): string | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) return undefined;
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/shorts\/|youtu\.be\/)([\w-]{11})/,
+  ];
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (match) return match[1];
+  }
+  if (/^[\w-]{11}$/.test(trimmed)) return trimmed;
+  return undefined;
+}
+
 interface QuestionFormProps {
   initial?: QuestionRecord | null;
   onSubmit: (input: QuestionInput) => Promise<void> | void;
@@ -36,13 +54,20 @@ interface QuestionFormProps {
 }
 
 export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: QuestionFormProps) {
-  const [theme, setTheme] = useState<QuestionTheme>(initial?.theme ?? "trivia");
+  const [theme, setTheme] = useState<Exclude<QuestionTheme, "speed">>(
+    initial?.theme && initial.theme !== "speed" ? initial.theme : "trivia"
+  );
   const [prompt, setPrompt] = useState(initial?.prompt ?? "");
   const [choices, setChoices] = useState<string[]>(initial?.choices ?? ["", "", "", ""]);
   const [correctIndex, setCorrectIndex] = useState(initial?.correctIndex ?? 0);
   const [mediaUrl, setMediaUrl] = useState(initial?.mediaUrl ?? "");
   const [notesText, setNotesText] = useState(serializeNotes(initial?.metadata?.notes));
   const [stat, setStat] = useState(initial?.metadata?.stat ?? "");
+  const [youtubeUrl, setYoutubeUrl] = useState(initial?.metadata?.youtubeId ?? "");
+  const [startSeconds, setStartSeconds] = useState(initial?.metadata?.startSeconds ?? 0);
+  const [clipDurationSeconds, setClipDurationSeconds] = useState(
+    initial?.metadata?.clipDurationMs ? Math.round(initial.metadata.clipDurationMs / 1000) : 25
+  );
 
   useEffect(() => {
     if (theme === "stats" && choices.length !== 2) setChoices(["", ""]);
@@ -78,6 +103,7 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
       return;
     }
     if (theme === "ost") {
+      const youtubeId = extractYouTubeId(youtubeUrl);
       onSubmit({
         theme: "ost",
         prompt: prompt.trim(),
@@ -85,11 +111,10 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
         correctIndex,
         mediaUrl: mediaUrl.trim() || undefined,
         notes: parseNotes(notesText),
+        youtubeId,
+        startSeconds: youtubeId ? startSeconds : undefined,
+        clipDurationMs: youtubeId ? clipDurationSeconds * 1000 : undefined,
       });
-      return;
-    }
-    if (theme === "speed") {
-      onSubmit({ theme: "speed", prompt: prompt.trim(), choices: trimmedChoices, correctIndex });
       return;
     }
     onSubmit({ theme: "trivia", prompt: prompt.trim(), choices: trimmedChoices, correctIndex });
@@ -103,7 +128,7 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
   return (
     <div className="panel flex w-full flex-col gap-3 rounded-2xl p-4">
       <div className="flex flex-wrap gap-2">
-        {(Object.keys(THEME_LABEL) as QuestionTheme[]).map((t) => (
+        {(Object.keys(THEME_LABEL) as Exclude<QuestionTheme, "speed">[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -136,16 +161,53 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
 
       {theme === "ost" && (
         <>
+          <div className="flex flex-col gap-1 rounded-lg border border-gold/40 bg-gold/5 p-3">
+            <label className="text-xs font-bold uppercase tracking-wide text-gold">
+              Blind test — lien YouTube (remix uniquement, anti-copyright)
+            </label>
+            <input
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+            />
+            {youtubeUrl.trim() && !extractYouTubeId(youtubeUrl) && (
+              <p className="text-xs text-crimson-bright">Lien YouTube non reconnu.</p>
+            )}
+            <div className="flex gap-2">
+              <label className="flex flex-1 flex-col gap-1 text-xs text-ink-muted">
+                Début (secondes)
+                <input
+                  type="number"
+                  min={0}
+                  value={startSeconds}
+                  onChange={(e) => setStartSeconds(Math.max(0, Number(e.target.value) || 0))}
+                  className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-1 flex-col gap-1 text-xs text-ink-muted">
+                Durée du clip (secondes)
+                <input
+                  type="number"
+                  min={10}
+                  max={60}
+                  value={clipDurationSeconds}
+                  onChange={(e) => setClipDurationSeconds(Math.min(60, Math.max(10, Number(e.target.value) || 25)))}
+                  className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+                />
+              </label>
+            </div>
+          </div>
           <input
             value={mediaUrl}
             onChange={(e) => setMediaUrl(e.target.value)}
-            placeholder="URL du clip audio (optionnel)"
+            placeholder="URL du clip audio (repli si pas de lien YouTube)"
             className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
           />
           <input
             value={notesText}
             onChange={(e) => setNotesText(e.target.value)}
-            placeholder="Mélodie synthétisée (optionnel) — ex: 660:150, 990:150, 880:300"
+            placeholder="Mélodie synthétisée (repli) — ex: 660:150, 990:150, 880:300"
             className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
           />
         </>

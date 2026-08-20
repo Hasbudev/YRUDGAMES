@@ -4,12 +4,7 @@ import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import type { EventSummary } from "@yrud/shared";
 import { AvatarIcon } from "@/components/yrud/AvatarIcon";
-
-const PLACEMENT_LABEL: Record<number, string> = { 1: "1er", 2: "2e", 3: "3e" };
-
-function placementLabel(placement: number): string {
-  return PLACEMENT_LABEL[placement] ?? `${placement}e`;
-}
+import { Podium, placementLabel } from "@/components/site/Podium";
 
 interface EndGameSummaryProps {
   summary: EventSummary;
@@ -39,28 +34,23 @@ export function EndGameSummary({ summary, myPlayerId }: EndGameSummaryProps) {
 
   const podium = summary.standings.slice(0, 3);
   const rest = summary.standings.slice(3);
-  const podiumHeight: Record<number, string> = { 1: "h-36", 2: "h-24", 3: "h-16" };
-  const podiumOrder = [podium[1], podium[0], podium[2]].filter(Boolean); // 2nd, 1st, 3rd left-to-right
 
   return (
     <div className="flex w-full max-w-3xl flex-col items-center gap-8 py-4">
       <h2 className="font-display text-glow-gold text-3xl font-black text-gold-bright">Résumé de la soirée</h2>
 
-      <div ref={podiumRef} className="flex w-full items-end justify-center gap-4">
-        {podiumOrder.map((entry) => (
-          <div key={entry.playerId} className="flex flex-col items-center gap-2">
-            <AvatarIcon avatarId={entry.avatarId} seed={entry.playerId} size={entry.placement === 1 ? 56 : 44} />
-            <span className={`max-w-[7rem] truncate text-center text-sm font-bold ${entry.playerId === myPlayerId ? "text-gold-bright" : "text-ink"}`}>
-              {entry.name}
-            </span>
-            <span className="text-xs text-ink-muted">{entry.correctAnswers} bonne(s) réponse(s)</span>
-            <div
-              className={`flex w-24 items-start justify-center rounded-t-lg border-t-2 border-x-2 border-gold/40 bg-gradient-to-b from-gold/25 to-purple/10 pt-2 ${podiumHeight[entry.placement] ?? "h-12"}`}
-            >
-              <span className="font-display text-lg font-black text-gold-bright">{placementLabel(entry.placement)}</span>
-            </div>
-          </div>
-        ))}
+      <div ref={podiumRef} className="w-full">
+        <Podium
+          entries={podium.map((entry) => ({
+            id: entry.playerId,
+            name: entry.name,
+            avatarSeed: entry.playerId,
+            avatarId: entry.avatarId,
+            rank: entry.placement,
+            statLabel: `${entry.correctAnswers} bonne(s) réponse(s)`,
+            highlight: entry.playerId === myPlayerId,
+          }))}
+        />
       </div>
 
       {rest.length > 0 && (
@@ -98,17 +88,6 @@ export function EndGameSummary({ summary, myPlayerId }: EndGameSummaryProps) {
           <p className="text-2xl font-black text-crimson-bright">{summary.tauntCount + summary.prankCount}</p>
           <p className="text-xs text-ink-muted">provocations &amp; frayeurs de Yrud</p>
         </div>
-        {summary.speedRoundBonusWinnerIds.length > 0 && (
-          <div className="panel col-span-2 rounded-xl p-3 text-center sm:col-span-1">
-            <p className="text-sm font-bold text-gold-bright">Vie bonus</p>
-            <p className="text-xs text-ink-muted">
-              {summary.standings
-                .filter((s) => summary.speedRoundBonusWinnerIds.includes(s.playerId))
-                .map((s) => s.name)
-                .join(", ")}
-            </p>
-          </div>
-        )}
         {summary.finalBattleWinnerName && (
           <div className="panel col-span-2 rounded-xl p-3 text-center sm:col-span-2">
             <p className="text-sm font-bold text-gold-bright">Bataille finale</p>

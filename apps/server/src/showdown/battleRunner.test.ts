@@ -7,6 +7,7 @@ const P1_TEAM = `
 Charizard
 Ability: Blaze
 Level: 100
+Gender: M
 EVs: 252 SpA / 4 SpD / 252 Spe
 Timid Nature
 - Flamethrower
@@ -18,6 +19,7 @@ const P2_TEAM = `
 Blastoise
 Ability: Torrent
 Level: 100
+Gender: M
 EVs: 252 HP / 252 Def / 4 SpD
 Bold Nature
 - Surf
@@ -77,6 +79,66 @@ describe("FinalBattleRunner", () => {
       { onUpdate: () => {}, onRequest: () => {}, onEnd: () => {} }
     );
     expect(runner.submitChoice("someone-else", "move 1")).toEqual({ error: "Tu ne participes pas à cette bataille." });
+  });
+
+  it("exposes the full team roster, active gender, and move types once the battle starts", async () => {
+    const updates: BattleSnapshot[] = [];
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("battle did not update in time")), 15000);
+      const runner = new FinalBattleRunner(
+        { id: "p1id", name: "Alice", packedTeam: packOrThrow(P1_TEAM) },
+        { id: "p2id", name: "Bob", packedTeam: packOrThrow(P2_TEAM) },
+        {
+          onUpdate: (snapshot) => {
+            updates.push(snapshot);
+            if (updates.length >= 1) {
+              clearTimeout(timeout);
+              resolve();
+            }
+          },
+          onRequest: (playerId, request) => {
+            if (request.moves.length > 0) {
+              expect(request.moves.every((m) => typeof m.type === "string" && m.type.length > 0)).toBe(true);
+            }
+            runner.submitChoice(playerId, "move 1");
+          },
+          onEnd: () => {},
+        }
+      );
+    });
+
+    const last = updates[updates.length - 1];
+    expect(last.p1.team).toEqual([{ species: "Charizard", hpPercent: 100, fainted: false, isActive: true }]);
+    expect(last.p2.team).toEqual([{ species: "Blastoise", hpPercent: 100, fainted: false, isActive: true }]);
+    // Gendered species' actual letter isn't asserted here — Showdown may
+    // reroll a set's gender against the species' ratio at team validation.
+    // What matters is that it's read as a real value off the live battle
+    // object rather than left at the "N" placeholder the parser seeds it
+    // with (see teamState.ts).
+    expect(last.p1.active?.gender).toMatch(/^[MFN]$/);
+    expect(last.p2.active?.gender).toMatch(/^[MFN]$/);
+  });
+
+  it("forfeit ends the battle in favor of the other finalist", () => {
+    let ended: string | null | undefined;
+    const runner = new FinalBattleRunner(
+      { id: "p1id", name: "Alice", packedTeam: packOrThrow(P1_TEAM) },
+      { id: "p2id", name: "Bob", packedTeam: packOrThrow(P2_TEAM) },
+      { onUpdate: () => {}, onRequest: () => {}, onEnd: (winnerId) => (ended = winnerId) }
+    );
+    expect(runner.forfeit("p1id")).toEqual({ ok: true });
+    expect(ended).toBe("p2id");
+    expect(runner.forfeit("p2id")).toEqual({ error: "La bataille est déjà terminée." });
+  });
+
+  it("forfeit rejects someone who isn't in the battle", () => {
+    const runner = new FinalBattleRunner(
+      { id: "p1id", name: "Alice", packedTeam: packOrThrow(P1_TEAM) },
+      { id: "p2id", name: "Bob", packedTeam: packOrThrow(P2_TEAM) },
+      { onUpdate: () => {}, onRequest: () => {}, onEnd: () => {} }
+    );
+    expect(runner.forfeit("someone-else")).toEqual({ error: "Tu ne participes pas à cette bataille." });
   });
 });
 

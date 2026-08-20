@@ -16,7 +16,7 @@ export function AdminCodeGate({ onUnlock, error, busy }: AdminCodeGateProps) {
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
       <Image src="/sprites/yrud.png" alt="" width={71} height={100} style={{ imageRendering: "pixelated" }} />
       <h1 className="font-display text-xl font-semibold text-gold-bright">Panneau d&apos;administration de Yrud</h1>
-      <div className="panel flex w-full max-w-sm flex-col gap-3 rounded-2xl p-6">
+      <div className="panel-ornate flex w-full max-w-sm flex-col gap-3 rounded-2xl p-6">
         <label className="text-sm text-ink-muted">
           Code d&apos;accès
           <input

@@ -12,7 +12,6 @@ export interface StandingEntry {
 export interface EventSummary {
   standings: StandingEntry[];
   totalQuestions: number;
-  speedRoundBonusWinnerIds: string[];
   duelRecord: { yrudWins: number; opponentWins: number };
   tauntCount: number;
   prankCount: number;

@@ -5,21 +5,36 @@
 
 export type BattleStatus = "brn" | "par" | "slp" | "frz" | "psn" | "tox";
 
+export type PokemonGender = "M" | "F" | "N";
+
 export type BoostStat = "atk" | "def" | "spa" | "spd" | "spe" | "accuracy" | "evasion";
 
 export interface BattleActivePokemon {
   species: string;
   level: number;
+  gender: PokemonGender;
   hpPercent: number; // 0-100, rounded — exact HP is hidden from opponents by Showdown itself
   fainted: boolean;
   status?: BattleStatus;
   boosts: Partial<Record<BoostStat, number>>; // stat stage, e.g. { atk: 2 } for a Swords Dance
 }
 
+// One slot of the 6-Pokémon roster, read straight off the live Battle
+// object (not derived from protocol text) — see battleRunner's
+// pumpOmniscient, same pattern as field state.
+export interface BattleTeamMember {
+  species: string;
+  hpPercent: number;
+  fainted: boolean;
+  status?: BattleStatus;
+  isActive: boolean;
+}
+
 export interface BattleSideSnapshot {
   playerId: string;
   name: string;
   active: BattleActivePokemon | null;
+  team: BattleTeamMember[]; // full roster in team order, length up to 6
   remainingCount: number; // Pokémon still standing, including the active one
 }
 
@@ -79,6 +94,7 @@ export interface InterferenceDefinition {
 export interface BattleMoveOption {
   id: string;
   name: string;
+  type: string; // e.g. "Fire" — drives the move card's icon/accent color only
   pp: number;
   maxPp: number;
   disabled: boolean;

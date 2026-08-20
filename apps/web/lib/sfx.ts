@@ -55,16 +55,6 @@ export function playMelody(notes: { freq: number; durationMs: number }[]) {
   }
 }
 
-export function playSpeedTick(streak: number) {
-  // Pitch rises with the combo streak for a bit of escalating tension.
-  const freq = 500 + Math.min(streak, 10) * 40;
-  tone(freq, 0.08, "square", 0.1, 0);
-}
-
-export function playSpeedMiss() {
-  tone(160, 0.15, "sawtooth", 0.1, 0);
-}
-
 export function playPrankSting() {
   tone(80, 0.4, "sawtooth", 0.22, 0);
   tone(1200, 0.08, "square", 0.16, 0);
