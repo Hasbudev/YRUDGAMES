@@ -3,11 +3,18 @@
 # and needs the root lockfile to install correctly.
 FROM node:20-slim
 
+# Prisma's query engine needs OpenSSL to be present at install time to
+# detect the right engine binary for this image.
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy only manifests first so `npm ci` is cached unless a dependency changes.
+# Copy manifests (for npm ci caching) plus the prisma schema, which the
+# apps/server "postinstall" script (prisma generate) needs during `npm ci`
+# below — before the rest of the source is copied in.
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/package.json
+COPY apps/server/prisma apps/server/prisma
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
