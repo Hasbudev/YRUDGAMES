@@ -20,9 +20,8 @@ import { ArenaView } from "@/components/yrud/ArenaView";
 import { TimerBar } from "@/components/quiz/TimerBar";
 import { AdminCodeGate } from "@/components/admin/AdminCodeGate";
 import { DuelStage } from "@/components/duel/DuelStage";
-import { BattleStage } from "@/components/battle/BattleStage";
+import { FinalBattleView } from "@/components/battle/FinalBattleView";
 import { EndGameSummary } from "@/components/summary/EndGameSummary";
-import { BattleLogFeed } from "@/components/battle/BattleLogFeed";
 import { InterferenceCutIn } from "@/components/battle/InterferenceCutIn";
 
 interface ActiveDuel {
@@ -94,6 +93,11 @@ export function ConsoleClient({ code }: { code: string }) {
     socket.on("state:sync", (snap) => {
       setSnapshot(snap);
       if (snap.activeDuel) setActiveDuel({ opponentId: snap.activeDuel.opponentId, rollLog: snap.activeDuel.rollLog });
+      // The admin console can be opened well after a final battle has
+      // started (or already ended) — without this, it'd show nothing until
+      // the next in-battle broadcast, or forever if the battle already ended.
+      if (snap.battle ?? snap.lastBattleSnapshot) setBattleSnapshot(snap.battle ?? snap.lastBattleSnapshot ?? null);
+      if (snap.battleLog) setBattleLog(snap.battleLog.slice(-300));
     });
     socket.on("question:new", () => setActionError(null));
     socket.on("game:finished", ({ winnerIds, summary }) => {
@@ -107,7 +111,7 @@ export function ConsoleClient({ code }: { code: string }) {
     socket.on("duel:end", ({ opponentId, winner, rollLog }) => setActiveDuel({ opponentId, rollLog, winner }));
     socket.on("battle:snapshot", ({ snapshot: snap, log }) => {
       setBattleSnapshot(snap);
-      setBattleLog((prev) => [...prev, ...log].slice(-60));
+      setBattleLog((prev) => [...prev, ...log].slice(-300));
     });
     socket.on("battle:interference", ({ label }) => setActiveInterference({ label, key: Date.now() }));
     socket.on("battle:end", () => setActionError(null));
@@ -261,8 +265,11 @@ export function ConsoleClient({ code }: { code: string }) {
       )}
       {actionError && <p className="text-sm text-crimson-bright">{actionError}</p>}
 
-      <div className="panel w-full rounded-2xl p-4">
-        <p className="mb-3 font-display text-sm font-semibold text-gold-bright">Interférence de Yrud</p>
+      <div className="panel-ornate w-full rounded-2xl p-4">
+        {/* pl-5 clears the .panel-ornate corner flourish (2.25rem) sitting
+            at the panel's top-left — without it the label's first letter
+            sits half-hidden behind the ornament. */}
+        <p className="mb-3 pl-5 font-display text-sm font-semibold text-gold-bright">Interférence de Yrud</p>
 
         <div className="mb-4 flex gap-2">
           <input
@@ -317,8 +324,11 @@ export function ConsoleClient({ code }: { code: string }) {
         </div>
       </div>
 
-      <div className="panel w-full rounded-2xl p-4">
-        <p className="mb-3 font-display text-sm font-semibold text-gold-bright">Bataille finale</p>
+      <div className="panel-ornate w-full rounded-2xl p-4">
+        {/* pl-5 clears the .panel-ornate corner flourish (2.25rem) sitting
+            at the panel's top-left — without it the label's first letter
+            sits half-hidden behind the ornament. */}
+        <p className="mb-3 pl-5 font-display text-sm font-semibold text-gold-bright">Bataille finale</p>
 
         <div className="mb-4 flex gap-2">
           <input
@@ -426,20 +436,27 @@ export function ConsoleClient({ code }: { code: string }) {
       </div>
 
       {battleSnapshot && (
-        <div className="flex w-full flex-col items-center gap-3">
-          <BattleStage snapshot={battleSnapshot} log={battleLog} />
-          <BattleLogFeed entries={battleLog} sideNames={{ p1: battleSnapshot.p1.name, p2: battleSnapshot.p2.name }} />
-        </div>
+        <FinalBattleView
+          snapshot={battleSnapshot}
+          log={battleLog}
+          request={null}
+          onChooseMove={() => {}}
+          onSwitch={() => {}}
+          onForfeit={() => {}}
+          players={snapshot.players}
+        />
       )}
 
       {snapshot.question && (
-        <div className="panel w-full rounded-2xl p-4 text-sm">
+        <div className="panel-ornate w-full rounded-2xl p-4 text-sm">
           {snapshot.phase === "question" && (
-            <div className="mb-3">
+            <div className="mb-3 pl-5">
               <TimerBar startedAt={snapshot.question.startedAt} timeLimitMs={snapshot.question.timeLimitMs} />
             </div>
           )}
-          <p className="mb-1 text-xs uppercase tracking-wide text-gold-dim">
+          {/* pl-5 clears the .panel-ornate corner flourish when this label is
+              the first thing in the panel (outside "question" phase). */}
+          <p className="mb-1 pl-5 text-xs uppercase tracking-wide text-gold-dim">
             {THEME_LABEL[snapshot.question.theme] ?? snapshot.question.theme}
           </p>
           <p className="font-semibold text-ink">{snapshot.question.prompt}</p>

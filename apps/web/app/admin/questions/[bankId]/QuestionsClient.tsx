@@ -249,7 +249,7 @@ export function QuestionsClient({ bankId }: { bankId: string }) {
           {bulkOpen ? "Masquer l'import en masse" : "Import en masse (JSON)"}
         </button>
         {bulkOpen && (
-          <div className="panel flex flex-col gap-2 rounded-2xl p-4">
+          <div className="panel-ornate flex flex-col gap-2 rounded-2xl p-4">
             <textarea
               value={bulkText}
               onChange={(e) => setBulkText(e.target.value)}

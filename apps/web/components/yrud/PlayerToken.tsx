@@ -5,7 +5,7 @@ import Image from "next/image";
 import gsap from "gsap";
 import type { PublicPlayer } from "@yrud/shared";
 import { playCorrect, playElimination } from "@/lib/sfx";
-import { AvatarIcon } from "./AvatarIcon";
+import { ClanBadge } from "./ClanBadge";
 
 interface PlayerTokenProps {
   player: PublicPlayer;
@@ -105,10 +105,10 @@ export function PlayerToken({ player, revealVerdict, hasAnswered }: PlayerTokenP
       )}
 
       <div
-        className="absolute flex items-center justify-center overflow-hidden rounded-full"
+        className="absolute overflow-hidden rounded-full"
         style={{ left: "50%", top: "36%", width: "42%", aspectRatio: "1", transform: "translate(-50%, -50%)" }}
       >
-        <AvatarIcon avatarId={player.avatarId} seed={player.id} size={36} className="h-full w-full" />
+        <ClanBadge clanId={player.clan} seed={player.id} className="h-full w-full" />
       </div>
 
       <span

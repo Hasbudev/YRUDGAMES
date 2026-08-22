@@ -13,7 +13,13 @@ export interface BattleActivePokemon {
   species: string;
   level: number;
   gender: PokemonGender;
-  hpPercent: number; // 0-100, rounded — exact HP is hidden from opponents by Showdown itself
+  hpPercent: number; // 0-100, rounded — used for the bar's fill width
+  hp: number | null; // exact current HP — this is the omniscient/spectator
+  maxHp: number | null; // stream (both finalists + spectators), unlike a real
+  // opponent-facing Showdown client, so showing the real numbers (matching
+  // the final-battle reference UI) doesn't leak anything competitive ladder
+  // play would hide. null only until the live Battle object patches it in
+  // (see teamState.ts) — never fabricated.
   fainted: boolean;
   status?: BattleStatus;
   boosts: Partial<Record<BoostStat, number>>; // stat stage, e.g. { atk: 2 } for a Swords Dance
@@ -56,6 +62,12 @@ export interface BattleSnapshot {
   p2: BattleSideSnapshot;
   field: BattleFieldSnapshot;
   winnerId: string | null;
+  // Distinct from `winnerId` — a simultaneous double-faint (Explosion,
+  // Destiny Bond, Perish Song running out for both) ends the battle with no
+  // winner at all, so `winnerId` alone can't tell "still playing" apart from
+  // "over, tied". Anything gating on "is this battle finished" should check
+  // this, not `winnerId` truthiness.
+  ended: boolean;
 }
 
 export type BattleLogEntry =
@@ -69,6 +81,16 @@ export type BattleLogEntry =
   | { kind: "switch"; actor: string; species: string }
   | { kind: "turn"; turn: number }
   | { kind: "win"; winnerName: string }
+  | { kind: "tie" }
+  | { kind: "sidestart"; target: string; condition: string }
+  | { kind: "sideend"; target: string; condition: string }
+  | { kind: "ability"; target: string; ability: string }
+  | { kind: "item"; target: string; item: string }
+  | { kind: "enditem"; target: string; item: string }
+  | { kind: "volatilestart"; target: string; effect: string }
+  | { kind: "volatileend"; target: string; effect: string }
+  | { kind: "terastallize"; target: string; teraType: string }
+  | { kind: "cant"; target: string; reason: string }
   | { kind: "text"; text: string };
 
 // Registry of Yrud's final-battle interference moves — same pattern as

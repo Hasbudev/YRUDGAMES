@@ -6,7 +6,7 @@ export function TeamGrid({ team }: { team: BattleTeamMember[] }) {
   return (
     <div>
       <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-gold-dim">Équipe</p>
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-2 gap-2">
         {slots.map((member, i) => (
           <TeamPokemonSlot key={i} member={member} />
         ))}

@@ -5,6 +5,7 @@ import Image from "next/image";
 import gsap from "gsap";
 import type { DuelActor, DuelRoll } from "@yrud/shared";
 import { playDuelHit, playDuelMiss, playDuelWin } from "@/lib/sfx";
+import { SpriteFlipbook } from "@/components/vfx/SpriteFlipbook";
 
 // Yrud is a known Medicham enjoyer; the challenger fields an Arboliva. The
 // accuracy values are tuned for this mini-game's pacing, not the real move
@@ -318,37 +319,19 @@ export function DuelStage({ opponentName, rollLog, winner, onDone }: DuelStagePr
             <Image src="/defi/vs-badge.png" alt="VS" width={300} height={290} className="h-20 w-auto sm:h-28" />
           </div>
 
-          {/* Leaf Storm — a cluster of leaves crossing the stage from the opponent's side */}
+          {/* Leaf Storm — a cluster of leaves crossing the stage from the opponent's side.
+              Keyed on rollLog.length so a fresh flipbook mounts (and restarts its frame
+              cycle from 0) every time a new toss launches, instead of only playing once. */}
           <div ref={leafStormRef} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0">
-            <div className="relative h-9 w-9">
-              {[
-                { x: -6, y: -4, r: -18, s: 1, hue: 100 },
-                { x: 5, y: -8, r: 30, s: 0.85, hue: 85 },
-                { x: -3, y: 6, r: -50, s: 0.75, hue: 115 },
-                { x: 8, y: 4, r: 60, s: 0.9, hue: 95 },
-                { x: 0, y: 0, r: 10, s: 1.1, hue: 105 },
-              ].map((leaf, i) => (
-                <span
-                  key={i}
-                  className="absolute left-1/2 top-1/2 block h-4 w-3"
-                  style={
-                    {
-                      "--leaf-x": `${leaf.x}px`,
-                      "--leaf-y": `${leaf.y}px`,
-                      "--leaf-r": `${leaf.r}deg`,
-                      "--leaf-s": leaf.s,
-                      background: `linear-gradient(140deg, hsl(${leaf.hue} 70% 55%), hsl(${leaf.hue} 60% 35%))`,
-                      borderRadius: "0 100% 0 100%",
-                      boxShadow: "0 0 6px rgba(120,200,90,0.6)",
-                      animation: `duel-leaf-flutter 0.5s ease-in-out ${i * 0.05}s infinite alternate`,
-                      // Base transform lives in the keyframe via the custom
-                      // properties above — the animation's own transform
-                      // would otherwise fully override this inline one.
-                    } as React.CSSProperties
-                  }
-                />
-              ))}
-            </div>
+            <SpriteFlipbook
+              key={rollLog.length}
+              src="/defi/leaf.png"
+              frameCount={6}
+              frameWidth={362}
+              frameHeight={724}
+              fps={20}
+              className="h-16 drop-shadow-[0_0_10px_rgba(120,200,90,0.6)]"
+            />
           </div>
 
           <div ref={opponentFrameRef} className="relative aspect-square" style={{ width: "clamp(112px, 30vw, 256px)" }}>
@@ -415,8 +398,12 @@ export function DuelStage({ opponentName, rollLog, winner, onDone }: DuelStagePr
           <div className="flex flex-col items-center gap-2" style={{ width: "clamp(112px, 30vw, 256px)" }}>
             <div className="relative w-full">
               <Image src="/defi/status-bar-red.png" alt="" width={410} height={96} className="h-auto w-full" />
-              <span className="absolute inset-0 flex items-center justify-center truncate px-4 font-display text-base font-bold text-ink sm:text-lg">
-                {opponentName}
+              <span className="absolute inset-0 flex items-center justify-center px-4 font-display text-base font-bold text-ink sm:text-lg">
+                {/* text-overflow only ellipsizes a block's own inline content —
+                    it's a no-op directly on a flex container, which just hard-clips
+                    long names instead. The inner block wrapper is what actually
+                    gets the ellipsis. */}
+                <span className="max-w-full truncate">{opponentName}</span>
               </span>
             </div>
             <MissBar misses={opponentMisses} tone="red" />

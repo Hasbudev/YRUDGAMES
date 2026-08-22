@@ -9,15 +9,6 @@ export default async function PlayPage({ params }: { params: Promise<{ code: str
         <Image src="/play/bg.png" alt="" fill priority sizes="100vw" className="object-cover opacity-70" />
         <div className="absolute inset-0 bg-gradient-to-b from-void-deep/40 via-void-deep/60 to-void-deep/95" />
       </div>
-      <div className="relative w-full max-w-lg">
-        <Image src="/play/header-bar.png" alt="" width={1415} height={185} className="h-auto w-full" priority />
-        <span
-          className="absolute flex items-center justify-center overflow-hidden font-display text-xs font-bold leading-none tracking-[0.02em] text-gold-bright sm:text-sm"
-          style={{ left: "73.5%", right: "14%", top: "58%", bottom: "25%" }}
-        >
-          {code.toUpperCase()}
-        </span>
-      </div>
       <PlayClient code={code.toUpperCase()} />
     </div>
   );

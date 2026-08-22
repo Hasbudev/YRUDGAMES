@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import type { EventSummary } from "@yrud/shared";
-import { AvatarIcon } from "@/components/yrud/AvatarIcon";
+import { ClanBadge } from "@/components/yrud/ClanBadge";
 import { Podium, placementLabel } from "@/components/site/Podium";
 
 interface EndGameSummaryProps {
@@ -45,7 +45,7 @@ export function EndGameSummary({ summary, myPlayerId }: EndGameSummaryProps) {
             id: entry.playerId,
             name: entry.name,
             avatarSeed: entry.playerId,
-            avatarId: entry.avatarId,
+            clan: entry.clan,
             rank: entry.placement,
             statLabel: `${entry.correctAnswers} bonne(s) réponse(s)`,
             highlight: entry.playerId === myPlayerId,
@@ -64,7 +64,7 @@ export function EndGameSummary({ summary, myPlayerId }: EndGameSummaryProps) {
             >
               <span className="flex items-center gap-2">
                 <span className="font-mono text-xs">{placementLabel(entry.placement)}</span>
-                <AvatarIcon avatarId={entry.avatarId} seed={entry.playerId} size={22} />
+                <ClanBadge clanId={entry.clan} seed={entry.playerId} size={22} />
                 {entry.name}
               </span>
               <span className="text-xs">{entry.correctAnswers} bonne(s) réponse(s)</span>

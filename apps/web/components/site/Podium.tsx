@@ -1,4 +1,4 @@
-import { AvatarIcon } from "@/components/yrud/AvatarIcon";
+import { ClanBadge } from "@/components/yrud/ClanBadge";
 
 const PLACEMENT_LABEL: Record<number, string> = { 1: "1er", 2: "2e", 3: "3e" };
 
@@ -10,7 +10,7 @@ export interface PodiumEntry {
   id: string;
   name: string;
   avatarSeed: string;
-  avatarId?: string | null;
+  clan?: string | null;
   rank: number;
   statLabel: string;
   highlight?: boolean;
@@ -33,7 +33,7 @@ export function Podium({ entries, className }: PodiumProps) {
     <div className={`flex w-full items-end justify-center gap-4 ${className ?? ""}`}>
       {ordered.map((entry) => (
         <div key={entry.id} className="flex flex-col items-center gap-2">
-          <AvatarIcon avatarId={entry.avatarId} seed={entry.avatarSeed} size={entry.rank === 1 ? 56 : 44} />
+          <ClanBadge clanId={entry.clan} seed={entry.avatarSeed} size={entry.rank === 1 ? 56 : 44} />
           <span className={`max-w-[7rem] truncate text-center text-sm font-bold ${entry.highlight ? "text-gold-bright" : "text-ink"}`}>
             {entry.name}
           </span>

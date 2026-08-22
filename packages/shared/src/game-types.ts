@@ -1,4 +1,4 @@
-import type { BattleSnapshot } from "./showdown-types";
+import type { BattleLogEntry, BattleSnapshot } from "./showdown-types";
 import type { DuelRoll } from "./duel-types";
 
 export type GamePhase = "lobby" | "question" | "reveal" | "battle" | "finished";
@@ -28,7 +28,7 @@ export interface PublicPlayer {
   name: string;
   lives: number;
   maxLives: number;
-  avatarId: string;
+  clan: string;
   eliminated: boolean;
   connected: boolean;
 }
@@ -69,6 +69,10 @@ export interface ArenaSnapshot {
   answeredPlayerIds: string[];
   battle?: BattleSnapshot;
   lastBattleSnapshot?: BattleSnapshot;
+  // Full combat log accumulated so far — lets a client that (re)connects
+  // mid-battle (or opens the admin console late) resync the log feed instead
+  // of only seeing entries broadcast after it connected.
+  battleLog?: BattleLogEntry[];
   battlePlan?: string;
   // Lets a client that (re)connects mid-duel resync instead of missing the
   // spectacle entirely — only present while the duel is still rolling.

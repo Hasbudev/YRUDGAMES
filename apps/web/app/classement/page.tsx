@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { listLeaderboard, type LeaderboardEntry } from "@/lib/api";
 import { SiteHeader } from "@/components/site/SiteHeader";
-import { AvatarIcon } from "@/components/yrud/AvatarIcon";
+import { ClanBadge } from "@/components/yrud/ClanBadge";
 
 // Measured directly off leaderboard-table.png (723x683) — the asset bakes in
 // the 10 rank badges (1-10, correct numbers already) and 10 empty row slots;
@@ -36,16 +36,16 @@ const MAX_ROWS = 10;
 // once /api/leaderboard has genuine data (real names, from the RPPLF Discord,
 // bots excluded).
 const MOCK_ENTRIES: LeaderboardEntry[] = [
-  { name: "Tchoupi", eventsPlayed: 3, wins: 2, bestPlacement: 1, totalCorrectAnswers: 2580 },
-  { name: "Hasbulla", eventsPlayed: 3, wins: 1, bestPlacement: 1, totalCorrectAnswers: 2145 },
-  { name: "Remysse", eventsPlayed: 2, wins: 0, bestPlacement: 2, totalCorrectAnswers: 1980 },
-  { name: "juyen", eventsPlayed: 2, wins: 0, bestPlacement: 3, totalCorrectAnswers: 1725 },
-  { name: "Dieu Shykimi", eventsPlayed: 2, wins: 0, bestPlacement: 4, totalCorrectAnswers: 1540 },
-  { name: "Kindy", eventsPlayed: 1, wins: 0, bestPlacement: 4, totalCorrectAnswers: 1320 },
-  { name: "Kthuloutre", eventsPlayed: 1, wins: 0, bestPlacement: 5, totalCorrectAnswers: 1150 },
-  { name: "Moyerf", eventsPlayed: 1, wins: 0, bestPlacement: 6, totalCorrectAnswers: 980 },
-  { name: "scanziromain", eventsPlayed: 1, wins: 0, bestPlacement: 7, totalCorrectAnswers: 820 },
-  { name: "Bastien_", eventsPlayed: 1, wins: 0, bestPlacement: 8, totalCorrectAnswers: 650 },
+  { name: "Tchoupi", clan: "rapepolofia", eventsPlayed: 3, wins: 2, bestPlacement: 1, totalCorrectAnswers: 2580 },
+  { name: "Hasbulla", clan: "yrud", eventsPlayed: 3, wins: 1, bestPlacement: 1, totalCorrectAnswers: 2145 },
+  { name: "Remysse", clan: "paldea", eventsPlayed: 2, wins: 0, bestPlacement: 2, totalCorrectAnswers: 1980 },
+  { name: "juyen", clan: "rapepolofia", eventsPlayed: 2, wins: 0, bestPlacement: 3, totalCorrectAnswers: 1725 },
+  { name: "Dieu Shykimi", clan: "paldea", eventsPlayed: 2, wins: 0, bestPlacement: 4, totalCorrectAnswers: 1540 },
+  { name: "Kindy", clan: "yrud", eventsPlayed: 1, wins: 0, bestPlacement: 4, totalCorrectAnswers: 1320 },
+  { name: "Kthuloutre", clan: "rapepolofia", eventsPlayed: 1, wins: 0, bestPlacement: 5, totalCorrectAnswers: 1150 },
+  { name: "Moyerf", clan: "paldea", eventsPlayed: 1, wins: 0, bestPlacement: 6, totalCorrectAnswers: 980 },
+  { name: "scanziromain", clan: "yrud", eventsPlayed: 1, wins: 0, bestPlacement: 7, totalCorrectAnswers: 820 },
+  { name: "Bastien_", clan: "rapepolofia", eventsPlayed: 1, wins: 0, bestPlacement: 8, totalCorrectAnswers: 650 },
 ];
 
 export default function ClassementPage() {
@@ -96,7 +96,7 @@ export default function ClassementPage() {
                   className="absolute flex items-center gap-2"
                   style={{ top: `${ROW_BANDS[i].topPct}%`, height: `${ROW_BANDS[i].heightPct}%`, left: `${NAME_LEFT_PCT}%`, width: `${NAME_WIDTH_PCT}%` }}
                 >
-                  <AvatarIcon seed={entry.name} size={26} className="shrink-0" />
+                  <ClanBadge clanId={entry.clan} seed={entry.name} size={26} className="shrink-0" />
                   <p className="truncate text-sm font-bold text-ink sm:text-base">{entry.name}</p>
                 </div>
               ))}

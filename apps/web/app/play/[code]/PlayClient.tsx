@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import type { Socket } from "socket.io-client";
 import type {
   ArenaSnapshot,
@@ -15,7 +16,7 @@ import type {
   PublicQuestion,
   ServerToClientEvents,
 } from "@yrud/shared";
-import { AVATAR_REGISTRY, getPrankDefinition, type PrankDefinition } from "@yrud/shared";
+import { CLAN_REGISTRY, getPrankDefinition, type PrankDefinition } from "@yrud/shared";
 import { createSocket } from "@/lib/socket-client";
 import { mergePlayerJoined } from "@/lib/arena";
 import { ArenaView } from "@/components/yrud/ArenaView";
@@ -25,11 +26,9 @@ import { PrankOverlay } from "@/components/prank/PrankOverlay";
 import { DuelStage } from "@/components/duel/DuelStage";
 import { YrudCaption } from "@/components/yrud/YrudCaption";
 import { useSceneMood } from "@/components/scene/SceneMoodContext";
-import { AvatarIcon } from "@/components/yrud/AvatarIcon";
+import { ClanBadge } from "@/components/yrud/ClanBadge";
 import { HeartRow } from "@/components/yrud/HeartRow";
-import { BattleStage } from "@/components/battle/BattleStage";
-import { BattleLogFeed } from "@/components/battle/BattleLogFeed";
-import { MoveChooser } from "@/components/battle/MoveChooser";
+import { FinalBattleView } from "@/components/battle/FinalBattleView";
 import { InterferenceCutIn } from "@/components/battle/InterferenceCutIn";
 import { EndGameSummary } from "@/components/summary/EndGameSummary";
 import { RevealCard } from "@/components/quiz/RevealCard";
@@ -49,7 +48,20 @@ const ELIMINATION_LINES = [
   "Encore un(e) qui tombe sous mon regard.",
   "Faible. Suivant.",
 ];
+// Yrud fields his own clan in the event — no gameplay bonus, but he doesn't
+// hide his favoritism. Triggered whenever the elimination/finale involves
+// one of his own instead of the neutral lines above.
+const ELIMINATION_LINES_YRUD_CLAN = [
+  "Non... pas toi. Je fermerai les yeux pour cette fois, mais l'arène ne le refera pas deux fois.",
+  "Un de mes fidèles tombe... dommage, tu avais toute ma faveur.",
+  "Même mes propres sbires ne sont pas épargnés par l'arène. Je m'en souviendrai.",
+  "Ce n'est pas juste... mais même moi, je ne peux pas tout truquer.",
+];
 const FINALE_LINES = ["Il ne reste qu'un vainqueur... voyons de quoi il ou elle est fait(e)."];
+const FINALE_LINES_YRUD_CLAN = [
+  "Bien sûr que c'est l'un des miens qui va jusqu'au bout. Je n'attendais rien de moins.",
+  "Mon sbire préféré... montre-leur ce que signifie porter mes couleurs.",
+];
 
 interface ActiveDuel {
   opponentId: string;
@@ -60,7 +72,7 @@ interface ActiveDuel {
 export function PlayClient({ code }: { code: string }) {
   const [socket, setSocket] = useState<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const [name, setName] = useState("");
-  const [avatarId, setAvatarId] = useState(AVATAR_REGISTRY[0].id);
+  const [clan, setClan] = useState(CLAN_REGISTRY[0].id);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -82,14 +94,23 @@ export function PlayClient({ code }: { code: string }) {
   const prevPhaseRef = useRef<GamePhase | null>(null);
   const captionCounter = useRef(0);
   // Read via ref inside the connect/reconnect handler below so the socket
-  // effect doesn't need name/avatarId in its deps (that would tear down and
+  // effect doesn't need name/clan in its deps (that would tear down and
   // recreate the connection on every keystroke while typing a name).
   const nameRef = useRef(name);
-  const avatarIdRef = useRef(avatarId);
+  const clanRef = useRef(clan);
   useEffect(() => {
     nameRef.current = name;
-    avatarIdRef.current = avatarId;
-  }, [name, avatarId]);
+    clanRef.current = clan;
+  }, [name, clan]);
+  // The socket effect below only runs once per connection (see its deps),
+  // so handlers inside it close over stale state — question:reveal needs
+  // the *current* roster to know an eliminated player's clan, hence a ref
+  // kept in sync on every snapshot update rather than reading `snapshot`
+  // directly from that closure.
+  const snapshotRef = useRef<ArenaSnapshot | null>(null);
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   const fireCaption = useCallback((pool: string[]) => {
     captionCounter.current += 1;
@@ -103,14 +124,14 @@ export function PlayClient({ code }: { code: string }) {
     // Fires on the first connect AND every automatic reconnect after a
     // dropped connection — auto-restoring identity either way means a wifi
     // blip (or a page refresh) doesn't dump the player back on the join
-    // form. The server ignores name/avatarId for a player that already
-    // exists, so it's safe to resend whatever's currently in state here.
+    // form. The server ignores name/clan for a player that already exists,
+    // so it's safe to resend whatever's currently in state here.
     socket.on("connect", () => {
       const existingPlayerId = localStorage.getItem(storageKey(code));
       if (!existingPlayerId) return;
       socket.emit(
         "player:join",
-        { name: nameRef.current || "Joueur", existingPlayerId, avatarId: avatarIdRef.current },
+        { name: nameRef.current || "Joueur", existingPlayerId, clan: clanRef.current },
         (res) => {
           if (!("error" in res)) {
             localStorage.setItem(storageKey(code), res.playerId);
@@ -129,6 +150,10 @@ export function PlayClient({ code }: { code: string }) {
       if (snap.phase !== "question") setSelectedIndex(null);
       if (snap.activeDuel) setActiveDuel({ opponentId: snap.activeDuel.opponentId, rollLog: snap.activeDuel.rollLog });
       if (snap.battle ?? snap.lastBattleSnapshot) setBattleSnapshot(snap.battle ?? snap.lastBattleSnapshot ?? null);
+      // Full history from the room resync, not a delta — always at least as
+      // complete as whatever this client already accumulated locally, so a
+      // (re)connect mid-battle recovers the log instead of starting empty.
+      if (snap.battleLog) setBattleLog(snap.battleLog.slice(-300));
       if (snap.battlePlan) setBattlePlan(snap.battlePlan);
     });
     socket.on("question:new", (q) => {
@@ -138,16 +163,20 @@ export function PlayClient({ code }: { code: string }) {
     socket.on("question:reveal", (result) => {
       // snapshot's lastReveal drives the arena sweep animation; here we only
       // add the livestream-facing beats (screen flash + Yrud line) on top.
-      if (result.results.some((r) => r.eliminated)) {
+      const eliminated = result.results.filter((r) => r.eliminated);
+      if (eliminated.length > 0) {
         flash();
-        fireCaption(ELIMINATION_LINES);
+        const players = snapshotRef.current?.players ?? [];
+        const hitOwnClan = eliminated.some((r) => players.find((p) => p.id === r.playerId)?.clan === "yrud");
+        fireCaption(hitOwnClan ? ELIMINATION_LINES_YRUD_CLAN : ELIMINATION_LINES);
       }
     });
     socket.on("game:finished", ({ winnerIds, summary }) => {
       setWinnerIds(winnerIds);
       setSummary(summary);
       setMood("finale");
-      fireCaption(FINALE_LINES);
+      const ownClanWon = summary.standings.some((s) => winnerIds.includes(s.playerId) && s.clan === "yrud");
+      fireCaption(ownClanWon ? FINALE_LINES_YRUD_CLAN : FINALE_LINES);
     });
     socket.on("yrud:taunt", ({ message }) => setActiveTaunt({ message, key: Date.now() }));
     socket.on("prank:trigger", ({ prankId, text }) => {
@@ -164,7 +193,7 @@ export function PlayClient({ code }: { code: string }) {
     socket.on("duel:end", ({ opponentId, winner, rollLog }) => setActiveDuel({ opponentId, rollLog, winner }));
     socket.on("battle:snapshot", ({ snapshot: snap, log }) => {
       setBattleSnapshot(snap);
-      setBattleLog((prev) => [...prev, ...log].slice(-60));
+      setBattleLog((prev) => [...prev, ...log].slice(-300));
     });
     socket.on("battle:request", ({ request }) => setBattleRequest(request));
     socket.on("battle:interference", ({ label }) => setActiveInterference({ label, key: Date.now() }));
@@ -197,7 +226,7 @@ export function PlayClient({ code }: { code: string }) {
   function join() {
     if (!socket || !name.trim()) return;
     const existingPlayerId = localStorage.getItem(storageKey(code)) ?? undefined;
-    socket.emit("player:join", { name, existingPlayerId, avatarId }, (res) => {
+    socket.emit("player:join", { name, existingPlayerId, clan }, (res) => {
       if ("error" in res) {
         setJoinError(res.error);
         return;
@@ -214,19 +243,49 @@ export function PlayClient({ code }: { code: string }) {
     socket.emit("player:answer", { questionId: question.id, choiceIndex });
   }
 
-  function chooseBattleMove(choice: string) {
+  function chooseBattleMove(moveIndex: number) {
     if (!socket) return;
     setBattleRequest(null);
-    socket.emit("player:battleChoice", { choice }, () => {});
+    socket.emit("player:battleChoice", { choice: `move ${moveIndex}` }, () => {});
   }
 
+  function switchBattlePokemon(slot: number) {
+    if (!socket) return;
+    setBattleRequest(null);
+    socket.emit("player:battleChoice", { choice: `switch ${slot}` }, () => {});
+  }
+
+  function forfeitBattle() {
+    if (!socket) return;
+    socket.emit("player:battleForfeit", () => {});
+  }
+
+  const header = (
+    <div className="relative w-full max-w-lg">
+      <Image src="/play/header-bar.png" alt="" width={1415} height={185} className="h-auto w-full" priority />
+      <span
+        className="absolute flex items-center justify-center overflow-hidden font-display text-xs font-bold leading-none tracking-[0.02em] text-gold-bright sm:text-sm"
+        style={{ left: "73.5%", right: "14%", top: "58%", bottom: "25%" }}
+      >
+        {code}
+      </span>
+    </div>
+  );
+
   if (connectError) {
-    return <p className="text-crimson-bright">{connectError}</p>;
+    return (
+      <div className="flex flex-col items-center gap-6">
+        {header}
+        <p className="text-crimson-bright">{connectError}</p>
+      </div>
+    );
   }
 
   if (!playerId) {
     return (
-      <div className="panel-ornate flex w-full max-w-sm flex-col gap-4 rounded-2xl p-6">
+      <div className="flex w-full max-w-sm flex-col items-center gap-6">
+        {header}
+        <div className="panel-ornate flex w-full flex-col gap-4 rounded-2xl p-6">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -236,21 +295,21 @@ export function PlayClient({ code }: { code: string }) {
           maxLength={24}
         />
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">Choisis ton emblème</p>
-          <div className="grid grid-cols-4 gap-2">
-            {AVATAR_REGISTRY.map((a) => (
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">Choisis ton clan</p>
+          <div className="grid grid-cols-3 gap-2">
+            {CLAN_REGISTRY.map((c) => (
               <button
-                key={a.id}
+                key={c.id}
                 type="button"
-                onClick={() => setAvatarId(a.id)}
-                className={`flex flex-col items-center gap-1 rounded-lg border p-2 transition-all ${
-                  avatarId === a.id
+                onClick={() => setClan(c.id)}
+                className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-all ${
+                  clan === c.id
                     ? "border-gold-bright bg-gold/10 scale-105"
                     : "border-border bg-void-deep/40 hover:border-border-strong"
                 }`}
               >
-                <AvatarIcon avatarId={a.id} seed={a.id} size={30} />
-                <span className="text-[10px] text-ink-muted">{a.label}</span>
+                <ClanBadge clanId={c.id} seed={c.id} size={44} />
+                <span className="text-xs text-ink-muted">{c.label}</span>
               </button>
             ))}
           </div>
@@ -261,7 +320,8 @@ export function PlayClient({ code }: { code: string }) {
         >
           Rejoindre la partie {code}
         </button>
-        {joinError && <p className="text-sm text-crimson-bright">{joinError}</p>}
+          {joinError && <p className="text-sm text-crimson-bright">{joinError}</p>}
+        </div>
       </div>
     );
   }
@@ -295,23 +355,26 @@ export function PlayClient({ code }: { code: string }) {
   );
 
   const battleSection = battleSnapshot && (
-    <div className="flex w-full flex-col items-center gap-3">
-      {battlePlan && (
-        <p className="max-w-2xl text-center text-xs text-ink-muted">
-          <span className="font-semibold text-gold-dim">Plan annoncé par Yrud :</span> {battlePlan}
-        </p>
-      )}
-      <BattleStage snapshot={battleSnapshot} log={battleLog} />
-      <BattleLogFeed entries={battleLog} sideNames={{ p1: battleSnapshot.p1.name, p2: battleSnapshot.p2.name }} />
-      {battleRequest && <MoveChooser request={battleRequest} onChoose={chooseBattleMove} />}
-    </div>
+    <FinalBattleView
+      snapshot={battleSnapshot}
+      log={battleLog}
+      request={battleRequest}
+      onChooseMove={chooseBattleMove}
+      onSwitch={switchBattlePokemon}
+      onForfeit={forfeitBattle}
+      viewerPlayerId={playerId}
+      players={snapshot?.players ?? []}
+      battlePlan={battlePlan}
+      eventCode={code}
+    />
   );
 
   if (winnerIds && snapshot?.phase !== "battle" && !battleSnapshot) {
     const won = winnerIds.includes(playerId);
     return (
-      <div className="flex flex-col items-center gap-4">
+      <div className="flex flex-col items-center gap-6">
         {overlays}
+        {header}
         <h2 className="font-display text-glow-gold text-2xl font-bold text-gold-bright">
           {won ? "Tu as survécu à l'arène de Yrud !" : "Yrud t'a balayé(e)."}
         </h2>
@@ -334,13 +397,14 @@ export function PlayClient({ code }: { code: string }) {
   return (
     <div className="flex w-full flex-col items-center gap-8">
       {overlays}
+      {header}
       {myself && (
         <div className="flex items-center gap-2 text-sm text-ink-muted">
           {myself.eliminated ? (
             "Tu as été éliminé(e) — regarde l'arène."
           ) : (
             <>
-              <AvatarIcon avatarId={myself.avatarId} seed={myself.id} size={26} />
+              <ClanBadge clanId={myself.clan} seed={myself.id} size={26} />
               <span>Tes vies :</span>
               <HeartRow lives={myself.lives} maxLives={myself.maxLives} size={16} />
             </>

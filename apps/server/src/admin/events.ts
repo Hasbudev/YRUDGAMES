@@ -63,12 +63,12 @@ eventsRouter.get("/events/open", async (_req, res) => {
 eventsRouter.get("/leaderboard", async (_req, res) => {
   const players = await prisma.player.findMany({
     where: { event: { status: "finished" }, placement: { not: null } },
-    select: { name: true, placement: true, correctAnswers: true },
+    select: { name: true, placement: true, correctAnswers: true, clan: true },
   });
 
   const byName = new Map<
     string,
-    { name: string; eventsPlayed: number; wins: number; bestPlacement: number; totalCorrectAnswers: number }
+    { name: string; clan: string | null; eventsPlayed: number; wins: number; bestPlacement: number; totalCorrectAnswers: number }
   >();
   for (const p of players) {
     const key = p.name.trim().toLowerCase();
@@ -82,6 +82,10 @@ eventsRouter.get("/leaderboard", async (_req, res) => {
     } else {
       byName.set(key, {
         name: p.name.trim(),
+        // Clan is picked per event-join, not a persistent account, but a
+        // player switching clans between sessions is rare enough that
+        // "whichever event we saw first" is a fine tie-break for display.
+        clan: p.clan,
         eventsPlayed: 1,
         wins: placement === 1 ? 1 : 0,
         bestPlacement: placement,

@@ -58,6 +58,7 @@ describe("FinalBattleRunner", () => {
             clearTimeout(timeout);
             resolve();
           },
+          onError: (err) => reject(err instanceof Error ? err : new Error(String(err))),
         }
       );
     });
@@ -76,7 +77,7 @@ describe("FinalBattleRunner", () => {
     const runner = new FinalBattleRunner(
       { id: "p1id", name: "Alice", packedTeam: packOrThrow(P1_TEAM) },
       { id: "p2id", name: "Bob", packedTeam: packOrThrow(P2_TEAM) },
-      { onUpdate: () => {}, onRequest: () => {}, onEnd: () => {} }
+      { onUpdate: () => {}, onRequest: () => {}, onEnd: () => {}, onError: () => {} }
     );
     expect(runner.submitChoice("someone-else", "move 1")).toEqual({ error: "Tu ne participes pas à cette bataille." });
   });
@@ -104,6 +105,7 @@ describe("FinalBattleRunner", () => {
             runner.submitChoice(playerId, "move 1");
           },
           onEnd: () => {},
+          onError: (err) => reject(err instanceof Error ? err : new Error(String(err))),
         }
       );
     });
@@ -118,6 +120,10 @@ describe("FinalBattleRunner", () => {
     // with (see teamState.ts).
     expect(last.p1.active?.gender).toMatch(/^[MFN]$/);
     expect(last.p2.active?.gender).toMatch(/^[MFN]$/);
+    expect(last.p1.active?.hp).toBeGreaterThan(0);
+    expect(last.p1.active?.maxHp).toBeGreaterThan(0);
+    expect(last.p2.active?.hp).toBeGreaterThan(0);
+    expect(last.p2.active?.maxHp).toBeGreaterThan(0);
   });
 
   it("forfeit ends the battle in favor of the other finalist", () => {
@@ -125,7 +131,7 @@ describe("FinalBattleRunner", () => {
     const runner = new FinalBattleRunner(
       { id: "p1id", name: "Alice", packedTeam: packOrThrow(P1_TEAM) },
       { id: "p2id", name: "Bob", packedTeam: packOrThrow(P2_TEAM) },
-      { onUpdate: () => {}, onRequest: () => {}, onEnd: (winnerId) => (ended = winnerId) }
+      { onUpdate: () => {}, onRequest: () => {}, onEnd: (winnerId) => (ended = winnerId), onError: () => {} }
     );
     expect(runner.forfeit("p1id")).toEqual({ ok: true });
     expect(ended).toBe("p2id");
@@ -136,7 +142,7 @@ describe("FinalBattleRunner", () => {
     const runner = new FinalBattleRunner(
       { id: "p1id", name: "Alice", packedTeam: packOrThrow(P1_TEAM) },
       { id: "p2id", name: "Bob", packedTeam: packOrThrow(P2_TEAM) },
-      { onUpdate: () => {}, onRequest: () => {}, onEnd: () => {} }
+      { onUpdate: () => {}, onRequest: () => {}, onEnd: () => {}, onError: () => {} }
     );
     expect(runner.forfeit("someone-else")).toEqual({ error: "Tu ne participes pas à cette bataille." });
   });

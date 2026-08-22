@@ -15,6 +15,12 @@ export interface ParserState {
 const NOISE_PREFIXES = [
   "t:", "gametype", "gen", "tier", "clearpoke", "poke", "teampreview",
   "start", "upkeep", "html", "player", "rule", "rated", "request",
+  // "debug"/"bigerror" only appear because gen9customgame runs with
+  // debugMode on (ability/move code calls this.debug(...) freely, and
+  // checkEVBalance's over-510-EV warning uses "bigerror") — both are
+  // simulator internals like "Multiscale weaken", never something a player
+  // chose to see, and have no translation worth writing.
+  "debug", "bigerror",
 ];
 
 function emptyActive(): BattleActivePokemon | null {
@@ -29,6 +35,7 @@ export function createInitialParserState(p1: SideMeta, p2: SideMeta): ParserStat
       p2: { playerId: p2.playerId, name: p2.name, active: emptyActive(), team: [], remainingCount: 0 },
       field: { weather: null, terrain: null, pseudoWeathers: [], turn: 0 },
       winnerId: null,
+      ended: false,
     },
   };
 }
@@ -86,9 +93,18 @@ export function applyProtocolChunk(chunk: string, state: ParserState): { state: 
         if (!key) break;
         const { hpPercent, fainted } = hpPercentFrom(parts[3] ?? "0/0");
         // Stat boosts reset on switch-out — a fresh active always starts at 0.
-        // gender is a placeholder here — battleRunner overwrites it from the
-        // live Battle object right after, same as it does for field state.
-        const active: BattleActivePokemon = { species: speciesOf(parts[1]), level: 100, gender: "N", hpPercent, fainted, boosts: {} };
+        // gender/hp/maxHp are placeholders here — battleRunner overwrites
+        // them from the live Battle object right after, same as field state.
+        const active: BattleActivePokemon = {
+          species: speciesOf(parts[1]),
+          level: 100,
+          gender: "N",
+          hpPercent,
+          hp: null,
+          maxHp: null,
+          fainted,
+          boosts: {},
+        };
         snapshot = { ...snapshot, [key]: { ...sideFor(snapshot, key), active } };
         log.push({ kind: "switch", actor: key, species: active.species });
         break;
@@ -192,6 +208,65 @@ export function applyProtocolChunk(chunk: string, state: ParserState): { state: 
         };
         break;
       }
+      // The next several cases (hazards/screens, abilities, items, volatile
+      // statuses, Tera, "can't move") all cover real, commonly-seen battle
+      // events that previously had no dedicated case — they fell through to
+      // the raw-text fallback and rendered as literal untranslated protocol
+      // lines (the same class of bug as the "debug Multiscale weaken" report).
+      case "-sidestart": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        log.push({ kind: "sidestart", target: key, condition: (parts[2] ?? "").replace(/^move:\s*/, "") });
+        break;
+      }
+      case "-sideend": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        log.push({ kind: "sideend", target: key, condition: (parts[2] ?? "").replace(/^move:\s*/, "") });
+        break;
+      }
+      case "-ability": {
+        const key = sideKeyOf(parts[1]);
+        if (!key || !parts[2]) break;
+        log.push({ kind: "ability", target: key, ability: parts[2] });
+        break;
+      }
+      case "-item": {
+        const key = sideKeyOf(parts[1]);
+        if (!key || !parts[2]) break;
+        log.push({ kind: "item", target: key, item: parts[2] });
+        break;
+      }
+      case "-enditem": {
+        const key = sideKeyOf(parts[1]);
+        if (!key || !parts[2]) break;
+        log.push({ kind: "enditem", target: key, item: parts[2] });
+        break;
+      }
+      case "-start": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        log.push({ kind: "volatilestart", target: key, effect: (parts[2] ?? "").replace(/^move:\s*/, "") });
+        break;
+      }
+      case "-end": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        log.push({ kind: "volatileend", target: key, effect: (parts[2] ?? "").replace(/^move:\s*/, "") });
+        break;
+      }
+      case "-terastallize": {
+        const key = sideKeyOf(parts[1]);
+        if (!key || !parts[2]) break;
+        log.push({ kind: "terastallize", target: key, teraType: parts[2] });
+        break;
+      }
+      case "cant": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        log.push({ kind: "cant", target: key, reason: parts[2] ?? "" });
+        break;
+      }
       case "turn": {
         const turn = Number(parts[1]) || 0;
         snapshot = { ...snapshot, field: { ...snapshot.field, turn } };
@@ -202,8 +277,21 @@ export function applyProtocolChunk(chunk: string, state: ParserState): { state: 
         const name = parts[1];
         const winnerId =
           name === state.sides.p1.name ? state.sides.p1.playerId : name === state.sides.p2.name ? state.sides.p2.playerId : null;
-        snapshot = { ...snapshot, winnerId };
+        snapshot = { ...snapshot, winnerId, ended: true };
         log.push({ kind: "win", winnerName: name });
+        break;
+      }
+      // Simultaneous double-faint (Explosion, Destiny Bond, Perish Song
+      // hitting zero for both) — the sim emits `|tie` instead of `|win|`,
+      // with no winner name at all. Without a dedicated case this fell to
+      // the raw-text fallback and `winnerId` stayed null forever, which is
+      // indistinguishable from "still in progress" — nothing downstream
+      // (battleRunner's ended check, the move/switch selector) ever knew
+      // the battle was over, so both players sat on a permanently frozen
+      // screen.
+      case "tie": {
+        snapshot = { ...snapshot, ended: true };
+        log.push({ kind: "tie" });
         break;
       }
       default: {

@@ -24,6 +24,7 @@ export interface OpenEventSummary {
 
 export interface LeaderboardEntry {
   name: string;
+  clan: string | null;
   eventsPlayed: number;
   wins: number;
   bestPlacement: number;

@@ -29,7 +29,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   "player:join": (
-    payload: { name: string; existingPlayerId?: string; avatarId?: string },
+    payload: { name: string; existingPlayerId?: string; clan?: string },
     ack: (res: { playerId: string } | { error: string }) => void
   ) => void;
   "player:answer": (payload: { questionId: string; choiceIndex: number }) => void;

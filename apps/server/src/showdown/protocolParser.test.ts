@@ -22,6 +22,8 @@ describe("protocolParser", () => {
       level: 100,
       gender: "N",
       hpPercent: 100,
+      hp: null,
+      maxHp: null,
       fainted: false,
       boosts: {},
     });
@@ -130,17 +132,63 @@ describe("protocolParser", () => {
     expect(next.snapshot.field.pseudoWeathers).toEqual([]);
   });
 
-  it("resolves the winner name back to the known playerId", () => {
+  it("resolves the winner name back to the known playerId and marks the battle ended", () => {
     const { state, log } = applyProtocolChunk("|win|Bob", freshState());
     expect(state.snapshot.winnerId).toBe("p2id");
+    expect(state.snapshot.ended).toBe(true);
     expect(log).toEqual([{ kind: "win", winnerName: "Bob" }]);
   });
 
-  it("skips noise lines and falls back to a text entry for anything unrecognized", () => {
+  it("marks the battle ended with no winner on a tie (simultaneous double-faint)", () => {
+    // Regression test: a tie used to leave `winnerId` null forever, which is
+    // indistinguishable from "still in progress" — the battle never ended
+    // from the client or battleRunner's point of view.
+    const { state, log } = applyProtocolChunk("|tie", freshState());
+    expect(state.snapshot.winnerId).toBeNull();
+    expect(state.snapshot.ended).toBe(true);
+    expect(log).toEqual([{ kind: "tie" }]);
+  });
+
+  it("skips noise lines (including debug-mode-only lines) and falls back to a text entry for anything unrecognized", () => {
     const { log } = applyProtocolChunk(
-      ["|t:|123456", "|gametype|singles", "|html|<div>ignored</div>", "|-someunknownmessage|foo"].join("\n"),
+      [
+        "|t:|123456",
+        "|gametype|singles",
+        "|html|<div>ignored</div>",
+        "|debug|Multiscale weaken",
+        "|bigerror|EV problem",
+        "|-someunknownmessage|foo",
+      ].join("\n"),
       freshState()
     );
     expect(log).toEqual([{ kind: "text", text: "|-someunknownmessage|foo" }]);
+  });
+
+  it("translates hazards/screens, abilities, items, volatile statuses, Terastallization, and 'can't move' instead of leaking raw protocol text", () => {
+    const { log } = applyProtocolChunk(
+      [
+        "|-sidestart|p1|move: Stealth Rock",
+        "|-sideend|p1|move: Stealth Rock",
+        "|-ability|p2a: Gyarados|Intimidate|boost",
+        "|-item|p1a: Charizard|Air Balloon",
+        "|-enditem|p1a: Charizard|Focus Sash",
+        "|-start|p2a: Blastoise|confusion",
+        "|-end|p2a: Blastoise|confusion",
+        "|-terastallize|p1a: Charizard|Fire",
+        "|cant|p2a: Blastoise|par",
+      ].join("\n"),
+      freshState()
+    );
+    expect(log).toEqual([
+      { kind: "sidestart", target: "p1", condition: "Stealth Rock" },
+      { kind: "sideend", target: "p1", condition: "Stealth Rock" },
+      { kind: "ability", target: "p2", ability: "Intimidate" },
+      { kind: "item", target: "p1", item: "Air Balloon" },
+      { kind: "enditem", target: "p1", item: "Focus Sash" },
+      { kind: "volatilestart", target: "p2", effect: "confusion" },
+      { kind: "volatileend", target: "p2", effect: "confusion" },
+      { kind: "terastallize", target: "p1", teraType: "Fire" },
+      { kind: "cant", target: "p2", reason: "par" },
+    ]);
   });
 });

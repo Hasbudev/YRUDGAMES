@@ -1,6 +1,7 @@
 import type { Server } from "socket.io";
 import type {
   ArenaSnapshot,
+  BattleChoiceRequest,
   ClientToServerEvents,
   EventSummary,
   InterferenceType,
@@ -16,7 +17,7 @@ import {
   TAUNT_DISPLAY_MS,
   getPrankDefinition,
   pickPrankText,
-  resolveAvatar,
+  resolveClan,
 } from "@yrud/shared";
 import { prisma } from "../db/client";
 import * as engine from "../game/engine";
@@ -46,9 +47,16 @@ export class EventRoom {
   private autoRevealTimer: NodeJS.Timeout | null = null;
   private duelState: DuelState | null = null;
   private livesPerPlayer: number;
-  private avatarByPlayer: Record<string, string> = {};
+  private clanByPlayer: Record<string, string> = {};
   private battleRunner: FinalBattleRunner | null = null;
   private lastBattleSnapshot?: ArenaSnapshot["lastBattleSnapshot"];
+  private lastBattleLog?: ArenaSnapshot["battleLog"];
+  // A move/switch request is only ever pushed once, straight to the socket
+  // that was connected when the simulator asked for it — a finalist who
+  // refreshes mid-turn would otherwise see no move buttons and no way to
+  // recover until the *next* turn's request arrives. Cached per player so a
+  // reconnect can be handed the still-pending request immediately.
+  private pendingBattleRequests: Record<string, BattleChoiceRequest> = {};
   private battlePlan?: string;
   private playerSockets: Record<string, string> = {};
   private connectedPlayers: Set<string> = new Set();
@@ -87,7 +95,7 @@ export class EventRoom {
       name: p.name,
       lives: p.lives,
       maxLives: this.livesPerPlayer,
-      avatarId: resolveAvatar(this.avatarByPlayer[p.id], p.id).id,
+      clan: resolveClan(this.clanByPlayer[p.id], p.id).id,
       eliminated: p.eliminated,
       connected: this.connectedPlayers.has(p.id),
     };
@@ -156,6 +164,7 @@ export class EventRoom {
           : [],
       battle: this.battleRunner?.snapshot,
       lastBattleSnapshot: this.lastBattleSnapshot,
+      battleLog: this.battleRunner?.log ?? this.lastBattleLog,
       battlePlan: this.battlePlan,
       // Lets a client that (re)connects mid-duel resync instead of missing
       // it entirely — duelState is briefly non-null in "resolved" phase too,
@@ -169,6 +178,8 @@ export class EventRoom {
 
   registerPlayerSocket(playerId: string, socketId: string) {
     this.playerSockets[playerId] = socketId;
+    const pendingRequest = this.pendingBattleRequests[playerId];
+    if (pendingRequest) this.io.to(socketId).emit("battle:request", { request: pendingRequest });
   }
 
   // Called whenever a player's socket (re)joins — covers both a brand new
@@ -229,7 +240,7 @@ export class EventRoom {
     }
   }
 
-  async addPlayer(id: string, name: string, avatarId?: string): Promise<PublicPlayer | { error: string }> {
+  async addPlayer(id: string, name: string, clan?: string): Promise<PublicPlayer | { error: string }> {
     if (this.state.players[id]) {
       return this.toPublicPlayer(this.state.players[id]);
     }
@@ -238,13 +249,13 @@ export class EventRoom {
     }
     this.state = engine.addPlayer(this.state, { id, name });
     const player = this.state.players[id];
-    const resolvedAvatarId = resolveAvatar(avatarId, id).id;
-    this.avatarByPlayer[id] = resolvedAvatarId;
+    const resolvedClan = resolveClan(clan, id).id;
+    this.clanByPlayer[id] = resolvedClan;
 
     await prisma.player.upsert({
       where: { id },
       update: {},
-      create: { id, eventId: this.eventId, name, avatarId: resolvedAvatarId, lives: player.lives },
+      create: { id, eventId: this.eventId, name, clan: resolvedClan, lives: player.lives },
     });
 
     this.io.to(this.socketRoom).emit("player:joined", this.toPublicPlayer(player));
@@ -555,6 +566,8 @@ export class EventRoom {
     });
 
     this.lastBattleSnapshot = undefined;
+    this.lastBattleLog = undefined;
+    this.pendingBattleRequests = {};
     this.battleRunner = new FinalBattleRunner(
       { id: player1Id, name: player1.name, packedTeam: team1.packed },
       { id: player2Id, name: player2.name, packedTeam: team2.packed },
@@ -563,14 +576,31 @@ export class EventRoom {
           this.io.to(this.socketRoom).emit("battle:snapshot", { snapshot, log });
         },
         onRequest: (playerId, request) => {
+          this.pendingBattleRequests[playerId] = request;
           const socketId = this.playerSockets[playerId];
           if (socketId) this.io.to(socketId).emit("battle:request", { request });
         },
         onEnd: (winnerId) => {
           this.lastBattleSnapshot = this.battleRunner?.snapshot;
+          this.lastBattleLog = this.battleRunner?.log;
+          this.pendingBattleRequests = {};
           this.battleRunner = null;
           this.io.to(this.socketRoom).emit("battle:end", { winnerId });
           this.broadcastSnapshot();
+        },
+        // The battle simulator's own internal pump loops can throw on a bad
+        // request or a species the sim only half-created from an
+        // unvalidated team paste — without this, that failure is invisible
+        // to both finalists (no more updates, no error, just a permanently
+        // frozen battle screen). Surfacing it as the same error:message
+        // event used for connection failures reuses an existing, working
+        // full-page error display instead of inventing new UI under time
+        // pressure.
+        onError: (err) => {
+          console.error(`[${this.code}] final battle pump error:`, err);
+          this.io.to(this.socketRoom).emit("error:message", {
+            message: "Une erreur est survenue pendant la bataille finale. Contactez un administrateur.",
+          });
         },
       }
     );
@@ -581,7 +611,11 @@ export class EventRoom {
 
   submitBattleChoice(playerId: string, choice: string): { ok: true } | { error: string } {
     if (!this.battleRunner) return { error: "Aucune bataille finale en cours." };
-    return this.battleRunner.submitChoice(playerId, choice);
+    const result = this.battleRunner.submitChoice(playerId, choice);
+    // Consumed — a reconnect before the next request arrives shouldn't
+    // replay this one and let the choice be resubmitted.
+    if ("ok" in result) delete this.pendingBattleRequests[playerId];
+    return result;
   }
 
   forfeitBattle(playerId: string): { ok: true } | { error: string } {
@@ -631,7 +665,7 @@ export class EventRoom {
       return {
         playerId: id,
         name: player?.name ?? "?",
-        avatarId: resolveAvatar(this.avatarByPlayer[id], id).id,
+        clan: resolveClan(this.clanByPlayer[id], id).id,
         // Standard competition ranking: ties share a placement, the next
         // rank after a tie skips ahead by the tie size (1,1,3 not 1,1,2).
         placement: i < winnerIds.length ? 1 : i + 1,

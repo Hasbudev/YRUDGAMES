@@ -4,7 +4,7 @@
 export interface StandingEntry {
   playerId: string;
   name: string;
-  avatarId: string;
+  clan: string;
   placement: number; // 1 = winner(s); ties share a placement (co-survivors)
   correctAnswers: number;
 }

@@ -73,7 +73,7 @@ model Player {
   eventId     String
   event       Event    @relation(fields: [eventId], references: [id])
   name        String
-  avatarId    String?
+  clan        String?
   lives       Int
   eliminated  Boolean  @default(false)
   eliminatedRound Int?

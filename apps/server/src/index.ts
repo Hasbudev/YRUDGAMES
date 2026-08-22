@@ -59,9 +59,9 @@ io.on("connection", async (socket) => {
   socket.join(room.socketRoom);
   socket.emit("state:sync", room.snapshot());
 
-  socket.on("player:join", async ({ name, existingPlayerId, avatarId }, ack) => {
+  socket.on("player:join", async ({ name, existingPlayerId, clan }, ack) => {
     const playerId = existingPlayerId ?? randomUUID();
-    const result = await room.addPlayer(playerId, name.trim().slice(0, 24) || "Joueur", avatarId);
+    const result = await room.addPlayer(playerId, name.trim().slice(0, 24) || "Joueur", clan);
     if ("error" in result) {
       ack({ error: result.error });
       return;
