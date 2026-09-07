@@ -22,6 +22,16 @@ export interface OpenEventSummary {
   createdAt: string;
 }
 
+export interface AdminEventSummary {
+  id: string;
+  code: string;
+  name: string;
+  status: "draft" | "live" | "finished";
+  playerCount: number;
+  questionBankName: string | null;
+  createdAt: string;
+}
+
 export interface LeaderboardEntry {
   name: string;
   clan: string | null;
@@ -90,6 +100,17 @@ export async function createEvent(input: {
   });
   if (!res.ok) throw new Error("Failed to create event");
   return res.json();
+}
+
+export async function listAllEvents(): Promise<AdminEventSummary[]> {
+  const res = await adminFetch("/api/events");
+  if (!res.ok) throw new Error("Failed to load events");
+  return res.json();
+}
+
+export async function deleteEvent(code: string): Promise<void> {
+  const res = await adminFetch(`/api/events/${encodeURIComponent(code)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete event");
 }
 
 export async function getEventByCode(code: string): Promise<EventSummary | null> {

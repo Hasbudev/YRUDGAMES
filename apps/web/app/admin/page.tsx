@@ -4,12 +4,21 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   createEvent,
+  deleteEvent,
   getStoredAdminCode,
+  listAllEvents,
   listQuestionBanks,
   storeAdminCode,
   UnauthorizedError,
+  type AdminEventSummary,
   type QuestionBankSummary,
 } from "@/lib/api";
+
+const STATUS_LABEL: Record<AdminEventSummary["status"], string> = {
+  draft: "en attente",
+  live: "en cours",
+  finished: "terminé",
+};
 import { AdminCodeGate } from "@/components/admin/AdminCodeGate";
 
 export default function AdminHomePage() {
@@ -18,10 +27,22 @@ export default function AdminHomePage() {
   const [gateBusy, setGateBusy] = useState(false);
 
   const [banks, setBanks] = useState<QuestionBankSummary[]>([]);
+  const [events, setEvents] = useState<AdminEventSummary[]>([]);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [deletingCode, setDeletingCode] = useState<string | null>(null);
   const [name, setName] = useState("Soirée YRUD GAMES");
   const [questionBankId, setQuestionBankId] = useState("");
   const [created, setCreated] = useState<{ code: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  async function refreshEvents() {
+    try {
+      setEvents(await listAllEvents());
+      setEventsError(null);
+    } catch {
+      setEventsError("Échec du chargement des événements.");
+    }
+  }
 
   async function tryLoadBanks() {
     try {
@@ -29,6 +50,7 @@ export default function AdminHomePage() {
       setBanks(b);
       if (b[0]) setQuestionBankId(b[0].id);
       setUnlocked(true);
+      await refreshEvents();
     } catch (e) {
       setUnlocked(false);
       if (e instanceof UnauthorizedError) setGateError("Code d'accès invalide.");
@@ -51,6 +73,18 @@ export default function AdminHomePage() {
     setGateBusy(false);
   }
 
+  async function handleDelete(code: string) {
+    setDeletingCode(code);
+    try {
+      await deleteEvent(code);
+      await refreshEvents();
+    } catch {
+      setEventsError(`Échec de la suppression de l'événement ${code}.`);
+    } finally {
+      setDeletingCode(null);
+    }
+  }
+
   if (unlocked === null) return null;
   if (!unlocked) return <AdminCodeGate onUnlock={unlock} error={gateError} busy={gateBusy} />;
 
@@ -59,6 +93,7 @@ export default function AdminHomePage() {
     try {
       const event = await createEvent({ name, questionBankId });
       setCreated(event);
+      await refreshEvents();
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         setUnlocked(false);
@@ -85,6 +120,9 @@ export default function AdminHomePage() {
         <Link href={`/play/${created.code}`} className="text-sm text-ink-muted underline">
           Ouvrir la page de connexion des joueurs
         </Link>
+        <button onClick={() => setCreated(null)} className="text-sm text-ink-muted underline">
+          Retour à la liste des événements
+        </button>
       </div>
     );
   }
@@ -126,6 +164,56 @@ export default function AdminHomePage() {
           Créer l&apos;événement
         </button>
         {formError && <p className="text-sm text-crimson-bright">{formError}</p>}
+      </div>
+
+      <div className="panel-ornate flex w-full max-w-2xl flex-col gap-3 rounded-2xl p-6">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-lg font-bold text-gold-bright">Événements existants</h2>
+          <button onClick={refreshEvents} className="text-xs text-ink-muted underline hover:text-ink">
+            Rafraîchir
+          </button>
+        </div>
+        {eventsError && <p className="text-sm text-crimson-bright">{eventsError}</p>}
+        {events.length === 0 ? (
+          <p className="text-sm text-ink-muted">Aucun événement pour le moment.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {events.map((e) => (
+              <li
+                key={e.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-void-deep/40 px-3 py-2"
+              >
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-ink">
+                    {e.name} — <span className="font-mono text-gold-bright">{e.code}</span>
+                  </span>
+                  <span className="text-xs text-ink-muted">
+                    {STATUS_LABEL[e.status]} · {e.playerCount} joueur(s) · {e.questionBankName ?? "banque supprimée"}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <Link
+                    href={`/admin/console/${e.code}`}
+                    className="rounded-lg border border-border px-3 py-1 text-xs text-ink-muted hover:border-border-strong"
+                  >
+                    Console
+                  </Link>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Supprimer définitivement l'événement "${e.name}" (${e.code}) ?`)) {
+                        handleDelete(e.code);
+                      }
+                    }}
+                    disabled={deletingCode === e.code}
+                    className="rounded-lg border border-crimson/50 px-3 py-1 text-xs text-crimson-bright hover:border-crimson disabled:opacity-40"
+                  >
+                    {deletingCode === e.code ? "Suppression..." : "Supprimer"}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

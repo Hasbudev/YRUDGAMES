@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "../db/client";
+import { dropRoom } from "../rooms/roomManager";
 
 export const eventsRouter = Router();
 
@@ -139,6 +140,63 @@ eventsRouter.post("/events", requireAdminCode, async (req, res) => {
   });
 
   res.status(201).json({ id: event.id, code: event.code, name: event.name });
+});
+
+// Admin: every event regardless of status, for the "manage events" list —
+// /events/open above deliberately only shows draft/live for the public
+// landing page.
+eventsRouter.get("/events", requireAdminCode, async (_req, res) => {
+  const events = await prisma.event.findMany({
+    include: { _count: { select: { players: true } }, questionBank: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json(
+    events.map((e: (typeof events)[number]) => ({
+      id: e.id,
+      code: e.code,
+      name: e.name,
+      status: e.status,
+      playerCount: e._count.players,
+      questionBankName: e.questionBank?.name ?? null,
+      createdAt: e.createdAt,
+    }))
+  );
+});
+
+// Admin: wipe an event and everything logged under it (players, rounds,
+// answers, duels, taunts, pranks, battle plan/interference/team logs) — a
+// test run has to be fully removable before the real event reuses the
+// question bank, and the FKs here are all ON DELETE RESTRICT, so this has
+// to happen in dependency order rather than a single cascading delete.
+eventsRouter.delete("/events/:code", requireAdminCode, async (req, res) => {
+  const event = await prisma.event.findUnique({ where: { code: req.params.code } });
+  if (!event) {
+    res.status(404).json({ error: "Événement introuvable." });
+    return;
+  }
+
+  const rounds = await prisma.round.findMany({ where: { eventId: event.id }, select: { id: true } });
+  const roundIds = rounds.map((r) => r.id);
+
+  await prisma.$transaction([
+    prisma.answerLog.deleteMany({ where: { roundId: { in: roundIds } } }),
+    prisma.round.deleteMany({ where: { eventId: event.id } }),
+    prisma.duelLog.deleteMany({ where: { eventId: event.id } }),
+    prisma.finalBattleTeam.deleteMany({ where: { eventId: event.id } }),
+    prisma.tauntLog.deleteMany({ where: { eventId: event.id } }),
+    prisma.prankLog.deleteMany({ where: { eventId: event.id } }),
+    prisma.battlePlanLog.deleteMany({ where: { eventId: event.id } }),
+    prisma.battleInterferenceLog.deleteMany({ where: { eventId: event.id } }),
+    prisma.player.deleteMany({ where: { eventId: event.id } }),
+    prisma.event.delete({ where: { id: event.id } }),
+  ]);
+
+  // Evict the in-memory room too — otherwise a still-cached EventRoom object
+  // would keep answering socket connections for this code after its DB row
+  // is gone.
+  dropRoom(event.code);
+
+  res.status(204).end();
 });
 
 // Public: the player join page needs to validate a code before connecting.
