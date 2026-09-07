@@ -23,6 +23,36 @@ questionsRouter.use(requireAdminCode);
 
 const melodyNoteSchema = z.object({ freq: z.number().positive(), durationMs: z.number().positive() });
 
+// Either a real external URL, or a local /public asset path (e.g.
+// "/quizz/images/manche2-q1.jpg") — Next's <Image> serves both identically,
+// so the admin API shouldn't force everything through an absolute URL.
+const mediaUrlSchema = z
+  .string()
+  .refine((v) => /^https?:\/\//.test(v) || v.startsWith("/"), "URL ou chemin /public invalide")
+  .optional();
+
+// How many points a correct answer is worth — most questions are worth 1,
+// but the admin can weight harder ones higher (a trap question still just
+// inverts whatever this value is, it doesn't change it).
+const pointsSchema = z.number().int().min(1).max(20).default(1);
+
+// Grouping questions into a "manche" (round) for the title-card banner, and
+// scoring beyond the flat default — a wrong pick costing points, a blank
+// costing something different, a streak bonus. All optional; a question
+// that doesn't set these behaves exactly like the original flat scoring.
+const roundFields = {
+  roundIndex: z.number().int().min(0).default(0),
+  roundLabel: z.string().min(1).max(60).optional(),
+  wrongPoints: z.number().int().min(-100).max(0).default(0),
+  blankPoints: z.number().int().min(-100).max(20).optional(),
+  comboThreshold: z.number().int().min(2).max(20).optional(),
+  comboBonus: z.number().int().min(1).max(100).optional(),
+  // Joke/gotcha question — every choice scores as correct, only a blank
+  // (via blankPoints) can lose points. correctIndex is still required by
+  // the schema but is meaningless when this is set.
+  allCorrect: z.boolean().default(false),
+};
+
 // Discriminated on theme so each question type gets the validation it
 // actually needs — stats questions are always a 2-way comparison (the UI
 // renders them as a special side-by-side pick), the others are 2-6 choices.
@@ -32,26 +62,30 @@ const questionInputSchema = z.discriminatedUnion("theme", [
     prompt: z.string().min(1).max(300),
     choices: z.array(z.string().min(1).max(120)).min(2).max(6),
     correctIndex: z.number().int().min(0),
-    mediaUrl: z.string().url().optional(),
+    mediaUrl: mediaUrlSchema,
+    points: pointsSchema,
+    ...roundFields,
   }),
   z.object({
     theme: z.literal("speed"),
     prompt: z.string().min(1).max(300),
     choices: z.array(z.string().min(1).max(120)).min(2).max(6),
     correctIndex: z.number().int().min(0),
+    points: pointsSchema,
+    ...roundFields,
   }),
   z.object({
     theme: z.literal("ost"),
     prompt: z.string().min(1).max(300),
     choices: z.array(z.string().min(1).max(120)).min(2).max(6),
     correctIndex: z.number().int().min(0),
-    mediaUrl: z.string().url().optional(),
+    mediaUrl: mediaUrlSchema,
     notes: z.array(melodyNoteSchema).min(1).max(64).optional(),
-    // Blind test — a real YouTube remix clip, already extracted to a bare
-    // video id client-side (no URL parsing needed here).
-    youtubeId: z.string().min(6).max(20).optional(),
-    startSeconds: z.number().int().min(0).optional(),
-    clipDurationMs: z.number().int().min(10_000).max(60_000).optional(),
+    // Blind test — a local audio file's filename under apps/web/public/blindtest
+    // (e.g. "1ZoneZero.wav"), served as a static asset by the Next app.
+    audioFile: z.string().min(1).max(200).optional(),
+    points: pointsSchema,
+    ...roundFields,
   }),
   z.object({
     theme: z.literal("stats"),
@@ -59,21 +93,30 @@ const questionInputSchema = z.discriminatedUnion("theme", [
     choices: z.array(z.string().min(1).max(120)).length(2),
     correctIndex: z.number().int().min(0).max(1),
     stat: z.string().min(1).max(40),
+    points: pointsSchema,
+    ...roundFields,
   }),
 ]);
 
 function toMetadata(data: z.infer<typeof questionInputSchema>) {
   if (data.theme === "ost") {
-    if (!data.notes && !data.youtubeId) return undefined;
-    return {
-      notes: data.notes,
-      youtubeId: data.youtubeId,
-      startSeconds: data.startSeconds,
-      clipDurationMs: data.clipDurationMs,
-    };
+    if (!data.notes && !data.audioFile) return undefined;
+    return { notes: data.notes, audioFile: data.audioFile };
   }
   if (data.theme === "stats") return { stat: data.stat };
   return undefined;
+}
+
+function roundData(data: z.infer<typeof questionInputSchema>) {
+  return {
+    roundIndex: data.roundIndex,
+    roundLabel: data.roundLabel ?? null,
+    wrongPoints: data.wrongPoints,
+    blankPoints: data.blankPoints ?? null,
+    comboThreshold: data.comboThreshold ?? null,
+    comboBonus: data.comboBonus ?? null,
+    allCorrect: data.allCorrect,
+  };
 }
 
 function serialize(q: {
@@ -85,6 +128,14 @@ function serialize(q: {
   choices: unknown;
   correctIndex: number;
   metadata: unknown;
+  points: number;
+  roundIndex: number;
+  roundLabel: string | null;
+  wrongPoints: number;
+  blankPoints: number | null;
+  comboThreshold: number | null;
+  comboBonus: number | null;
+  allCorrect: boolean;
 }) {
   return {
     id: q.id,
@@ -95,6 +146,14 @@ function serialize(q: {
     choices: q.choices,
     correctIndex: q.correctIndex,
     metadata: q.metadata,
+    points: q.points,
+    roundIndex: q.roundIndex,
+    roundLabel: q.roundLabel,
+    wrongPoints: q.wrongPoints,
+    blankPoints: q.blankPoints,
+    comboThreshold: q.comboThreshold,
+    comboBonus: q.comboBonus,
+    allCorrect: q.allCorrect,
   };
 }
 
@@ -145,6 +204,8 @@ questionsRouter.post("/question-banks/:bankId/questions", async (req, res) => {
       choices: data.choices,
       correctIndex: data.correctIndex,
       metadata: toMetadata(data),
+      points: data.points,
+      ...roundData(data),
     },
   });
   res.status(201).json(serialize(question));
@@ -172,6 +233,8 @@ questionsRouter.put("/questions/:id", async (req, res) => {
       choices: data.choices,
       correctIndex: data.correctIndex,
       metadata: toMetadata(data),
+      points: data.points,
+      ...roundData(data),
     },
   });
   res.json(serialize(question));
@@ -244,6 +307,8 @@ questionsRouter.post("/question-banks/:bankId/questions/bulk", async (req, res) 
     choices: data.choices,
     correctIndex: data.correctIndex,
     metadata: toMetadata(data),
+    points: data.points,
+    ...roundData(data),
   }));
   await prisma.question.createMany({ data: rows });
   res.status(201).json({ created: rows.length });

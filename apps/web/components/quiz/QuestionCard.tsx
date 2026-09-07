@@ -1,9 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import type { PublicQuestion } from "@yrud/shared";
 import { TimerBar } from "./TimerBar";
 import { OstPlayer } from "./OstQuestionCard";
-import { BlindTestPlayer } from "./BlindTestPlayer";
+import { LocalBlindTestPlayer } from "./LocalBlindTestPlayer";
 import { OrnatePanel } from "./OrnatePanel";
 import { ChoicePill, type ChoiceLetter } from "./ChoicePill";
 
@@ -39,20 +40,36 @@ export function QuestionCard({ question, disabled, selectedIndex, onAnswer }: Qu
             {THEME_LABEL[question.theme]}
           </span>
           <span className="text-ink-muted">
-            Question {question.questionIndex + 1} sur {question.questionCount}
+            Question {question.questionIndex + 1} sur {question.questionCount} · vaut {question.points} pt
+            {question.points === 1 ? "" : "s"}
           </span>
         </div>
-        <TimerBar startedAt={question.startedAt} timeLimitMs={question.timeLimitMs} />
+        {/* Blind test has no deadline — Yrud decides live when to reveal —
+            so showing a countdown that doesn't actually do anything would
+            just be misleading. */}
+        {question.theme !== "ost" && <TimerBar startedAt={question.startedAt} timeLimitMs={question.timeLimitMs} />}
         <h2 className="font-display text-xl font-semibold text-ink">{question.prompt}</h2>
 
-        {question.theme === "ost" &&
-          (question.metadata?.youtubeId ? (
-            <BlindTestPlayer
-              key={question.id}
-              youtubeId={question.metadata.youtubeId}
-              startSeconds={question.metadata.startSeconds ?? 0}
-              clipDurationMs={question.metadata.clipDurationMs ?? 25_000}
+        {question.theme !== "ost" && question.mediaUrl && (
+          <div className="relative mx-auto h-56 w-full max-w-md overflow-hidden rounded-xl border border-gold/25 bg-void-deep/40 sm:h-72">
+            <Image
+              src={question.mediaUrl}
+              alt=""
+              fill
+              sizes="(max-width: 640px) 90vw, 448px"
+              className="object-contain"
+              // Local /public paths go through Next's normal image
+              // optimizer fine; an admin-pasted external URL almost
+              // certainly isn't in next.config's allowed image domains, so
+              // skip optimization for those instead of erroring.
+              unoptimized={!question.mediaUrl.startsWith("/")}
             />
+          </div>
+        )}
+
+        {question.theme === "ost" &&
+          (question.metadata?.audioFile ? (
+            <LocalBlindTestPlayer key={question.id} audioFile={question.metadata.audioFile} />
           ) : (
             <OstPlayer notes={question.metadata?.notes} mediaUrl={question.mediaUrl} />
           ))}

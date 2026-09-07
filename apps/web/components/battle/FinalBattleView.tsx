@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { BattleChoiceRequest, BattleLogEntry, BattleSnapshot, PublicPlayer } from "@yrud/shared";
+import type { BattleChoiceRequest, BattleLogEntry, BattleSnapshot, PublicPlayer, TeamSheetMember } from "@yrud/shared";
 import { BattleHeader } from "./BattleHeader";
 import { BattleArena } from "./BattleArena";
 import { PlayerPanel } from "./PlayerPanel";
@@ -23,6 +23,7 @@ interface FinalBattleViewProps {
   players: PublicPlayer[];
   battlePlan?: string;
   eventCode?: string;
+  myTeamSheet?: TeamSheetMember[];
 }
 
 function clanFor(players: PublicPlayer[], playerId: string): string | null {
@@ -40,6 +41,7 @@ export function FinalBattleView({
   players,
   battlePlan,
   eventCode,
+  myTeamSheet,
 }: FinalBattleViewProps) {
   const [introDone, setIntroDone] = useState(false);
   const [switchMode, setSwitchMode] = useState(false);
@@ -84,7 +86,7 @@ export function FinalBattleView({
 
       <div className="grid w-full max-w-5xl gap-3 lg:grid-cols-[216px_1fr_216px]">
         <div className="hidden lg:block">
-          <PlayerPanel side={nearSide} />
+          <PlayerPanel side={nearSide} mySheet={myTeamSheet} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-3">
@@ -128,7 +130,7 @@ export function FinalBattleView({
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:hidden">
-          <PlayerPanel side={nearSide} />
+          <PlayerPanel side={nearSide} mySheet={myTeamSheet} />
           <PlayerPanel side={farSide} />
         </div>
       </div>

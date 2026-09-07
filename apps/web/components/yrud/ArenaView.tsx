@@ -16,7 +16,7 @@ export function ArenaView({ snapshot }: ArenaViewProps) {
     }
   }
   const answeredSet = new Set(snapshot.answeredPlayerIds);
-  const aliveCount = snapshot.players.filter((p) => !p.eliminated).length;
+  const playerCount = snapshot.players.length;
 
   return (
     <div className="w-full max-w-2xl">
@@ -25,11 +25,11 @@ export function ArenaView({ snapshot }: ArenaViewProps) {
           <div className="relative h-8 w-36 shrink-0 sm:h-9 sm:w-40">
             <Image src="/play/arene-badge.png" alt="" fill sizes="160px" className="object-contain" />
           </div>
-          <span className="font-display text-sm font-bold text-gold-bright sm:text-base">{aliveCount}</span>
+          <span className="font-display text-sm font-bold text-gold-bright sm:text-base">{playerCount}</span>
         </div>
         {snapshot.phase === "question" && (
           <span className="text-xs text-ink-muted">
-            {answeredSet.size} / {aliveCount} ont répondu
+            {answeredSet.size} / {playerCount} ont répondu
           </span>
         )}
       </div>

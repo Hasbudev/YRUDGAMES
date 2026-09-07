@@ -23,6 +23,7 @@ import { DuelStage } from "@/components/duel/DuelStage";
 import { FinalBattleView } from "@/components/battle/FinalBattleView";
 import { EndGameSummary } from "@/components/summary/EndGameSummary";
 import { InterferenceCutIn } from "@/components/battle/InterferenceCutIn";
+import { AmbiancePlayer } from "@/components/scene/AmbiancePlayer";
 
 interface ActiveDuel {
   opponentId: string;
@@ -32,6 +33,8 @@ interface ActiveDuel {
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: "en attente",
+  intro: "introduction de Yrud",
+  roundIntro: "Yrud présente la manche",
   question: "question",
   reveal: "révélation",
   battle: "bataille finale",
@@ -57,6 +60,7 @@ export function ConsoleClient({ code }: { code: string }) {
   const [winnerIds, setWinnerIds] = useState<string[] | null>(null);
   const [summary, setSummary] = useState<EventSummary | null>(null);
   const [tauntText, setTauntText] = useState("");
+  const [tauntTargetId, setTauntTargetId] = useState("");
   const [duelTargetId, setDuelTargetId] = useState("");
   const [activeDuel, setActiveDuel] = useState<ActiveDuel | null>(null);
   const [battleSnapshot, setBattleSnapshot] = useState<BattleSnapshot | null>(null);
@@ -69,6 +73,8 @@ export function ConsoleClient({ code }: { code: string }) {
   const [team1Text, setTeam1Text] = useState("");
   const [team2Text, setTeam2Text] = useState("");
   const [weatherOption, setWeatherOption] = useState(INTERFERENCE_REGISTRY[0].options?.[0]?.id ?? "");
+  const [adjustTargetId, setAdjustTargetId] = useState("");
+  const [adjustDelta, setAdjustDelta] = useState(15);
 
   useEffect(() => {
     setUnlocked(Boolean(getStoredAdminCode()));
@@ -104,6 +110,13 @@ export function ConsoleClient({ code }: { code: string }) {
       setWinnerIds(winnerIds);
       setSummary(summary);
     });
+    // Quiz just ended — pre-select the top two scorers as finalists so the
+    // "Bataille finale" panel below is ready to go without the admin having
+    // to hunt through the dropdowns themselves (still editable if needed).
+    socket.on("combat:announce", ({ player1, player2 }) => {
+      setFinalist1Id(player1.id);
+      setFinalist2Id(player2.id);
+    });
     socket.on("duel:start", ({ opponentId }) => setActiveDuel({ opponentId, rollLog: [] }));
     socket.on("duel:roll", (roll) =>
       setActiveDuel((prev) => (prev ? { ...prev, rollLog: [...prev.rollLog, roll] } : prev))
@@ -128,7 +141,9 @@ export function ConsoleClient({ code }: { code: string }) {
     setUnlocked(true);
   }
 
-  function runAction(action: "admin:start" | "admin:reveal" | "admin:next" | "admin:startBlindTest") {
+  function runAction(
+    action: "admin:start" | "admin:beginQuiz" | "admin:reveal" | "admin:next" | "admin:toggleTrap"
+  ) {
     const socket = socketRef.current;
     if (!socket) return;
     socket.emit(action, (res) => {
@@ -140,19 +155,31 @@ export function ConsoleClient({ code }: { code: string }) {
   function sendTaunt() {
     const socket = socketRef.current;
     if (!socket || !tauntText.trim()) return;
-    socket.emit("admin:taunt", { message: tauntText.trim() }, (res) => {
-      if (res && "error" in res) setActionError(res.error);
-      else {
-        setActionError(null);
-        setTauntText("");
+    socket.emit(
+      "admin:taunt",
+      { message: tauntText.trim(), playerId: tauntTargetId || undefined },
+      (res) => {
+        if (res && "error" in res) setActionError(res.error);
+        else {
+          setActionError(null);
+          setTauntText("");
+        }
       }
-    });
+    );
   }
 
   function triggerPrank(prankId: string) {
     const socket = socketRef.current;
     if (!socket) return;
     socket.emit("admin:triggerPrank", { prankId }, (res) => {
+      if (res && "error" in res) setActionError(res.error);
+    });
+  }
+
+  function adjustPoints(delta: number) {
+    const socket = socketRef.current;
+    if (!socket || !adjustTargetId) return;
+    socket.emit("admin:adjustPoints", { playerId: adjustTargetId, delta }, (res) => {
       if (res && "error" in res) setActionError(res.error);
     });
   }
@@ -205,13 +232,16 @@ export function ConsoleClient({ code }: { code: string }) {
   if (!snapshot) return <p className="text-ink-muted">Connexion...</p>;
 
   const nameById = new Map(snapshot.players.map((p) => [p.id, p.name]));
-  const eligibleDuelTargets = snapshot.players.filter((p) => !p.eliminated);
+  const byPointsDesc = [...snapshot.players].sort((a, b) => b.points - a.points);
 
   return (
     <div className="flex w-full max-w-3xl flex-col items-center gap-6">
+      <AmbiancePlayer />
       {activeDuel && (
         <DuelStage
           opponentName={nameById.get(activeDuel.opponentId) ?? "???"}
+          opponentId={activeDuel.opponentId}
+          opponentClan={snapshot.players.find((p) => p.id === activeDuel.opponentId)?.clan}
           rollLog={activeDuel.rollLog}
           winner={activeDuel.winner}
           onDone={() => setActiveDuel(null)}
@@ -221,10 +251,25 @@ export function ConsoleClient({ code }: { code: string }) {
         <InterferenceCutIn label={activeInterference.label} onDone={() => setActiveInterference(null)} />
       )}
 
-      <div className="flex items-center gap-3 text-sm">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
         <span className="rounded-full border border-border bg-void-deep/60 px-3 py-1 font-mono text-gold-bright">
           phase : {PHASE_LABEL[snapshot.phase] ?? snapshot.phase}
         </span>
+        {snapshot.question && (
+          <span className="rounded-full border border-gold/40 bg-gold/10 px-3 py-1 font-semibold text-gold-bright">
+            Manche {snapshot.question.roundIndex}
+            {snapshot.question.roundLabel ? ` · ${snapshot.question.roundLabel}` : ""}
+          </span>
+        )}
+        {(snapshot.phase === "intro" || snapshot.phase === "roundIntro") && (
+          <span
+            className="rounded-full border border-border bg-void-deep/60 px-3 py-1 text-ink-muted"
+            title="Purement indicatif — n'empêche pas de cliquer sur C'est parti !"
+          >
+            👁 {snapshot.introSeenPlayerIds.length} / {snapshot.players.filter((p) => p.connected).length} ont vu
+            l&apos;intro
+          </span>
+        )}
         <span className="rounded-full border border-border bg-void-deep/60 px-3 py-1 text-ink-muted">
           {snapshot.players.length} inscrit(s)
         </span>
@@ -237,6 +282,14 @@ export function ConsoleClient({ code }: { code: string }) {
           className="btn-gold"
         >
           Démarrer
+        </button>
+        <button
+          onClick={() => runAction("admin:beginQuiz")}
+          disabled={snapshot.phase !== "intro" && snapshot.phase !== "roundIntro"}
+          className="btn-crimson"
+          title="Termine le monologue de Yrud et démarre le chrono de la question."
+        >
+          🎤 C&apos;est parti !{snapshot.question ? ` (Manche ${snapshot.question.roundIndex})` : ""}
         </button>
         <button
           onClick={() => runAction("admin:reveal")}
@@ -253,15 +306,20 @@ export function ConsoleClient({ code }: { code: string }) {
           Question suivante
         </button>
         <button
-          onClick={() => runAction("admin:startBlindTest")}
-          disabled={snapshot.phase !== "lobby" && snapshot.phase !== "reveal"}
-          className="btn-crimson"
+          onClick={() => runAction("admin:toggleTrap")}
+          disabled={snapshot.phase !== "question"}
+          className={snapshot.trapActive ? "btn-crimson" : "btn-gold"}
+          title="Inverse le score de la question en cours : bonne réponse = 0 point, mauvaise réponse = 1 point."
         >
-          🎵 Lancer le blind test
+          {snapshot.trapActive ? "🪤 Piège armé !" : "🪤 Question piège"}
         </button>
       </div>
       {snapshot.phase === "question" && (
-        <p className="text-xs text-ink-muted">Révélation automatique quand le temps est écoulé — le bouton ci-dessus le fait juste en avance.</p>
+        <p className="text-xs text-ink-muted">
+          {snapshot.question?.theme === "ost"
+            ? "Blind test : pas de révélation automatique — clique \"Révéler la réponse\" quand tu es prêt."
+            : "Révélation automatique quand le temps est écoulé — le bouton ci-dessus le fait juste en avance."}
+        </p>
       )}
       {actionError && <p className="text-sm text-crimson-bright">{actionError}</p>}
 
@@ -271,7 +329,7 @@ export function ConsoleClient({ code }: { code: string }) {
             sits half-hidden behind the ornament. */}
         <p className="mb-3 pl-5 font-display text-sm font-semibold text-gold-bright">Interférence de Yrud</p>
 
-        <div className="mb-4 flex gap-2">
+        <div className="mb-4 flex flex-wrap gap-2">
           <input
             value={tauntText}
             onChange={(e) => setTauntText(e.target.value)}
@@ -280,6 +338,18 @@ export function ConsoleClient({ code }: { code: string }) {
             maxLength={200}
             className="flex-1 rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
           />
+          <select
+            value={tauntTargetId}
+            onChange={(e) => setTauntTargetId(e.target.value)}
+            className="rounded-lg border border-border bg-void-deep/60 px-2 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+          >
+            <option value="">Tous les joueurs</option>
+            {snapshot.players.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
           <button
             onClick={sendTaunt}
             disabled={!tauntText.trim()}
@@ -308,9 +378,9 @@ export function ConsoleClient({ code }: { code: string }) {
             className="flex-1 rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
           >
             <option value="">Défier un joueur en duel...</option>
-            {eligibleDuelTargets.map((p) => (
+            {byPointsDesc.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name}
+                {p.name} — {p.points} pt{p.points === 1 ? "" : "s"}
               </option>
             ))}
           </select>
@@ -322,6 +392,34 @@ export function ConsoleClient({ code }: { code: string }) {
             Lancer le duel
           </button>
         </div>
+
+        <div className="mt-3 flex items-center gap-2">
+          <select
+            value={adjustTargetId}
+            onChange={(e) => setAdjustTargetId(e.target.value)}
+            className="flex-1 rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+          >
+            <option value="">Ajuster les points de...</option>
+            {byPointsDesc.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} — {p.points} pt{p.points === 1 ? "" : "s"}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            value={adjustDelta}
+            onChange={(e) => setAdjustDelta(Number(e.target.value) || 0)}
+            title="Nombre de points à ajouter (négatif pour retirer)"
+            className="w-20 rounded-lg border border-border bg-void-deep/60 px-2 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+          />
+          <button onClick={() => adjustPoints(adjustDelta)} disabled={!adjustTargetId} className="btn-gold">
+            Appliquer
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-ink-muted">
+          Pour la Roue d&apos;Yrud, les défis de salopard, ou toute correction manuelle.
+        </p>
       </div>
 
       <div className="panel-ornate w-full rounded-2xl p-4">
@@ -329,6 +427,10 @@ export function ConsoleClient({ code }: { code: string }) {
             at the panel's top-left — without it the label's first letter
             sits half-hidden behind the ornament. */}
         <p className="mb-3 pl-5 font-display text-sm font-semibold text-gold-bright">Bataille finale</p>
+        <p className="-mt-2 mb-3 pl-5 text-xs text-ink-muted">
+          Une fois le quiz terminé, les deux joueurs avec le plus de points sont présélectionnés automatiquement
+          ci-dessous (modifiable si besoin) — il ne reste qu&apos;à coller les équipes et lancer.
+        </p>
 
         <div className="mb-4 flex gap-2">
           <input
@@ -358,9 +460,9 @@ export function ConsoleClient({ code }: { code: string }) {
               className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
             >
               <option value="">Finaliste 1...</option>
-              {snapshot.players.map((p) => (
+              {byPointsDesc.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {p.name} — {p.points} pt{p.points === 1 ? "" : "s"}
                 </option>
               ))}
             </select>
@@ -379,9 +481,9 @@ export function ConsoleClient({ code }: { code: string }) {
               className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
             >
               <option value="">Finaliste 2...</option>
-              {snapshot.players.map((p) => (
+              {byPointsDesc.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {p.name} — {p.points} pt{p.points === 1 ? "" : "s"}
                 </option>
               ))}
             </select>
@@ -449,7 +551,7 @@ export function ConsoleClient({ code }: { code: string }) {
 
       {snapshot.question && (
         <div className="panel-ornate w-full rounded-2xl p-4 text-sm">
-          {snapshot.phase === "question" && (
+          {snapshot.phase === "question" && snapshot.question.theme !== "ost" && (
             <div className="mb-3 pl-5">
               <TimerBar startedAt={snapshot.question.startedAt} timeLimitMs={snapshot.question.timeLimitMs} />
             </div>

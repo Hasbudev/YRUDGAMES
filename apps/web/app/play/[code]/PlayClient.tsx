@@ -15,6 +15,7 @@ import type {
   GamePhase,
   PublicQuestion,
   ServerToClientEvents,
+  TeamSheetMember,
 } from "@yrud/shared";
 import { CLAN_REGISTRY, getPrankDefinition, type PrankDefinition } from "@yrud/shared";
 import { createSocket } from "@/lib/socket-client";
@@ -26,11 +27,14 @@ import { PrankOverlay } from "@/components/prank/PrankOverlay";
 import { DuelStage } from "@/components/duel/DuelStage";
 import { YrudCaption } from "@/components/yrud/YrudCaption";
 import { useSceneMood } from "@/components/scene/SceneMoodContext";
+import { AmbiancePlayer } from "@/components/scene/AmbiancePlayer";
 import { ClanBadge } from "@/components/yrud/ClanBadge";
-import { HeartRow } from "@/components/yrud/HeartRow";
 import { FinalBattleView } from "@/components/battle/FinalBattleView";
 import { InterferenceCutIn } from "@/components/battle/InterferenceCutIn";
+import { YrudDialogue } from "@/components/yrud/YrudDialogue";
+import { INTRO_LINES, combatLines, roundIntroLines } from "@/lib/yrudDialogue";
 import { EndGameSummary } from "@/components/summary/EndGameSummary";
+import { GrandFinaleScreen } from "@/components/summary/GrandFinaleScreen";
 import { RevealCard } from "@/components/quiz/RevealCard";
 
 function storageKey(code: string) {
@@ -42,20 +46,18 @@ const GAME_START_LINES = [
   "Bienvenue dans mon arène. Voyons qui tremble en premier.",
   "Vos vies m'appartiennent déjà. Prouvez-moi le contraire.",
 ];
-const ELIMINATION_LINES = [
-  "Un de moins. L'arène se resserre.",
-  "Adieu... l'arène ne pardonne pas.",
-  "Encore un(e) qui tombe sous mon regard.",
-  "Faible. Suivant.",
+const TRAP_LINES = [
+  "Un piège... et il a parfaitement fonctionné.",
+  "Vous pensiez avoir juste ? L'arène en a décidé autrement.",
+  "La confiance vous a perdus. Délicieux.",
+  "Piège de Yrud : la certitude était votre pire ennemie.",
 ];
 // Yrud fields his own clan in the event — no gameplay bonus, but he doesn't
-// hide his favoritism. Triggered whenever the elimination/finale involves
-// one of his own instead of the neutral lines above.
-const ELIMINATION_LINES_YRUD_CLAN = [
-  "Non... pas toi. Je fermerai les yeux pour cette fois, mais l'arène ne le refera pas deux fois.",
-  "Un de mes fidèles tombe... dommage, tu avais toute ma faveur.",
-  "Même mes propres sbires ne sont pas épargnés par l'arène. Je m'en souviendrai.",
-  "Ce n'est pas juste... mais même moi, je ne peux pas tout truquer.",
+// hide his favoritism. Triggered whenever the trap/finale involves one of
+// his own instead of the neutral lines above.
+const TRAP_LINES_YRUD_CLAN = [
+  "Un piège qui touche même les miens... je ne suis pas toujours tendre.",
+  "Même sous mes couleurs, personne n'échappe à mes pièges.",
 ];
 const FINALE_LINES = ["Il ne reste qu'un vainqueur... voyons de quoi il ou elle est fait(e)."];
 const FINALE_LINES_YRUD_CLAN = [
@@ -88,8 +90,15 @@ export function PlayClient({ code }: { code: string }) {
   const [battleSnapshot, setBattleSnapshot] = useState<BattleSnapshot | null>(null);
   const [battleLog, setBattleLog] = useState<BattleLogEntry[]>([]);
   const [battleRequest, setBattleRequest] = useState<BattleChoiceRequest | null>(null);
+  const [myTeamSheet, setMyTeamSheet] = useState<TeamSheetMember[] | undefined>(undefined);
+  // undefined = no final battle has ended yet; null = ended in a tie.
+  const [battleFinalWinnerId, setBattleFinalWinnerId] = useState<string | null | undefined>(undefined);
   const [battlePlan, setBattlePlan] = useState<string | undefined>(undefined);
   const [activeInterference, setActiveInterference] = useState<{ label: string; key: number } | null>(null);
+  // Set once the quiz's last question is done, naming the final battle's two
+  // contenders — cleared once the battle actually starts (battleSnapshot
+  // takes over the display at that point).
+  const [pendingCombat, setPendingCombat] = useState<{ player1: string; player2: string } | null>(null);
   const { setMood, flash } = useSceneMood();
   const prevPhaseRef = useRef<GamePhase | null>(null);
   const captionCounter = useRef(0);
@@ -104,7 +113,7 @@ export function PlayClient({ code }: { code: string }) {
   }, [name, clan]);
   // The socket effect below only runs once per connection (see its deps),
   // so handlers inside it close over stale state — question:reveal needs
-  // the *current* roster to know an eliminated player's clan, hence a ref
+  // the *current* roster to know a caught-out player's clan, hence a ref
   // kept in sync on every snapshot update rather than reading `snapshot`
   // directly from that closure.
   const snapshotRef = useRef<ArenaSnapshot | null>(null);
@@ -162,13 +171,17 @@ export function PlayClient({ code }: { code: string }) {
     });
     socket.on("question:reveal", (result) => {
       // snapshot's lastReveal drives the arena sweep animation; here we only
-      // add the livestream-facing beats (screen flash + Yrud line) on top.
-      const eliminated = result.results.filter((r) => r.eliminated);
-      if (eliminated.length > 0) {
-        flash();
-        const players = snapshotRef.current?.players ?? [];
-        const hitOwnClan = eliminated.some((r) => players.find((p) => p.id === r.playerId)?.clan === "yrud");
-        fireCaption(hitOwnClan ? ELIMINATION_LINES_YRUD_CLAN : ELIMINATION_LINES);
+      // add the livestream-facing beats (screen flash + Yrud line) on top —
+      // now tied to the trap springing, the new "gotcha" moment now that
+      // nobody gets eliminated.
+      if (result.trap) {
+        const caughtOut = result.results.filter((r) => r.choiceIndex === result.correctIndex && !r.correct);
+        if (caughtOut.length > 0) {
+          flash();
+          const players = snapshotRef.current?.players ?? [];
+          const hitOwnClan = caughtOut.some((r) => players.find((p) => p.id === r.playerId)?.clan === "yrud");
+          fireCaption(hitOwnClan ? TRAP_LINES_YRUD_CLAN : TRAP_LINES);
+        }
       }
     });
     socket.on("game:finished", ({ winnerIds, summary }) => {
@@ -177,6 +190,10 @@ export function PlayClient({ code }: { code: string }) {
       setMood("finale");
       const ownClanWon = summary.standings.some((s) => winnerIds.includes(s.playerId) && s.clan === "yrud");
       fireCaption(ownClanWon ? FINALE_LINES_YRUD_CLAN : FINALE_LINES);
+    });
+    socket.on("combat:announce", ({ player1, player2 }) => {
+      setPendingCombat({ player1: player1.name, player2: player2.name });
+      setMood("finale");
     });
     socket.on("yrud:taunt", ({ message }) => setActiveTaunt({ message, key: Date.now() }));
     socket.on("prank:trigger", ({ prankId, text }) => {
@@ -196,10 +213,14 @@ export function PlayClient({ code }: { code: string }) {
       setBattleLog((prev) => [...prev, ...log].slice(-300));
     });
     socket.on("battle:request", ({ request }) => setBattleRequest(request));
+    socket.on("battle:teamSheet", ({ team }) => setMyTeamSheet(team));
     socket.on("battle:interference", ({ label }) => setActiveInterference({ label, key: Date.now() }));
-    socket.on("battle:end", () => {
+    socket.on("battle:end", ({ winnerId }) => {
       setBattleRequest(null);
       setMood("finale");
+      // Let the arena's own win banner/confetti play out before cutting to
+      // the dedicated grand-finale screen.
+      setTimeout(() => setBattleFinalWinnerId(winnerId), 3800);
     });
     socket.on("battle:plan", ({ text }) => setBattlePlan(text));
 
@@ -322,12 +343,16 @@ export function PlayClient({ code }: { code: string }) {
         </button>
           {joinError && <p className="text-sm text-crimson-bright">{joinError}</p>}
         </div>
+        <a href={`/watch/${code}`} className="text-xs text-ink-muted underline hover:text-ink">
+          Juste regarder ? Mode spectateur
+        </a>
       </div>
     );
   }
 
   const overlays = (
     <>
+      <AmbiancePlayer />
       {activeTaunt && <TauntOverlay message={activeTaunt.message} onDone={() => setActiveTaunt(null)} />}
       {activePrank && (
         <PrankOverlay prank={activePrank.def} text={activePrank.text} onDone={() => setActivePrank(null)} />
@@ -338,6 +363,8 @@ export function PlayClient({ code }: { code: string }) {
           return (
             <DuelStage
               opponentName={opponent?.name ?? "???"}
+              opponentId={activeDuel.opponentId}
+              opponentClan={opponent?.clan}
               rollLog={activeDuel.rollLog}
               winner={activeDuel.winner}
               onDone={() => {
@@ -366,8 +393,53 @@ export function PlayClient({ code }: { code: string }) {
       players={snapshot?.players ?? []}
       battlePlan={battlePlan}
       eventCode={code}
+      myTeamSheet={myTeamSheet}
     />
   );
+
+  if (snapshot?.phase === "intro") {
+    return (
+      <YrudDialogue
+        lines={INTRO_LINES}
+        waitingLabel="En attente que Yrud lance la Manche 1..."
+        onFinished={() => socket?.emit("player:introSeen")}
+      />
+    );
+  }
+
+  if (snapshot?.phase === "roundIntro" && question) {
+    return (
+      <YrudDialogue
+        lines={roundIntroLines(question.roundIndex, question.roundLabel)}
+        waitingLabel={`En attente que Yrud lance la Manche ${question.roundIndex}...`}
+        onFinished={() => socket?.emit("player:introSeen")}
+      />
+    );
+  }
+
+  if (pendingCombat && snapshot?.phase !== "battle" && !battleSnapshot && battleFinalWinnerId === undefined) {
+    return (
+      <YrudDialogue
+        lines={combatLines(pendingCombat.player1, pendingCombat.player2)}
+        waitingLabel="En attente que Yrud lance la Bataille Finale..."
+      />
+    );
+  }
+
+  if (battleFinalWinnerId !== undefined) {
+    return (
+      <div className="flex flex-col items-center gap-6">
+        {overlays}
+        {header}
+        <GrandFinaleScreen
+          winnerId={battleFinalWinnerId}
+          players={snapshot?.players ?? []}
+          summary={summary}
+          myPlayerId={playerId}
+        />
+      </div>
+    );
+  }
 
   if (winnerIds && snapshot?.phase !== "battle" && !battleSnapshot) {
     const won = winnerIds.includes(playerId);
@@ -400,15 +472,9 @@ export function PlayClient({ code }: { code: string }) {
       {header}
       {myself && (
         <div className="flex items-center gap-2 text-sm text-ink-muted">
-          {myself.eliminated ? (
-            "Tu as été éliminé(e) — regarde l'arène."
-          ) : (
-            <>
-              <ClanBadge clanId={myself.clan} seed={myself.id} size={26} />
-              <span>Tes vies :</span>
-              <HeartRow lives={myself.lives} maxLives={myself.maxLives} size={16} />
-            </>
-          )}
+          <ClanBadge clanId={myself.clan} seed={myself.id} size={26} />
+          <span>Tes points :</span>
+          <span className="font-display font-bold text-gold-bright">{myself.points}</span>
         </div>
       )}
       <div key={snapshot?.phase ?? "waiting"} className="animate-scene-enter flex w-full flex-col items-center">
@@ -416,7 +482,7 @@ export function PlayClient({ code }: { code: string }) {
           <QuestionCard
             key={question.id}
             question={question}
-            disabled={selectedIndex !== null || Boolean(myself?.eliminated)}
+            disabled={selectedIndex !== null}
             selectedIndex={selectedIndex}
             onAnswer={answer}
           />
@@ -426,6 +492,8 @@ export function PlayClient({ code }: { code: string }) {
             question={question}
             correctIndex={snapshot.lastReveal.correctIndex}
             myResult={snapshot.lastReveal.results.find((r) => r.playerId === playerId)}
+            trap={snapshot.lastReveal.trap}
+            allCorrect={snapshot.lastReveal.allCorrect}
           />
         ) : (
           <p className="text-sm text-ink-muted">En attente que Yrud lance la prochaine question...</p>

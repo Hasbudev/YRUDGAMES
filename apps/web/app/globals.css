@@ -386,6 +386,73 @@ body {
   }
 }
 
+@keyframes crit-flash {
+  0% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes crit-banner-in {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.6) rotate(-4deg);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1.15) rotate(2deg);
+  }
+  35% {
+    transform: translate(-50%, 0) scale(1) rotate(0deg);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes sudden-death-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translateY(-10px) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(160px) rotate(320deg);
+  }
+}
+
+@keyframes type-burst {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+}
+
 @keyframes move-banner-in {
   0% {
     opacity: 0;

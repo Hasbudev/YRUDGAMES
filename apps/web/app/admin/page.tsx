@@ -20,7 +20,6 @@ export default function AdminHomePage() {
   const [banks, setBanks] = useState<QuestionBankSummary[]>([]);
   const [name, setName] = useState("Soirée YRUD GAMES");
   const [questionBankId, setQuestionBankId] = useState("");
-  const [livesPerPlayer, setLivesPerPlayer] = useState(3);
   const [created, setCreated] = useState<{ code: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -58,7 +57,7 @@ export default function AdminHomePage() {
   async function submit() {
     setFormError(null);
     try {
-      const event = await createEvent({ name, questionBankId, livesPerPlayer });
+      const event = await createEvent({ name, questionBankId });
       setCreated(event);
     } catch (e) {
       if (e instanceof UnauthorizedError) {
@@ -118,17 +117,6 @@ export default function AdminHomePage() {
               </option>
             ))}
           </select>
-        </label>
-        <label className="text-sm text-ink-muted">
-          Vies par joueur
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={livesPerPlayer}
-            onChange={(e) => setLivesPerPlayer(Number(e.target.value))}
-            className="mt-1 w-full rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
-          />
         </label>
         <button
           onClick={submit}

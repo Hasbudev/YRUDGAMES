@@ -32,18 +32,24 @@ async function loadRoom(io: IoServer, code: string): Promise<EventRoom | null> {
     correctIndex: q.correctIndex,
     metadata: (q.metadata as QuestionMetadata | null) ?? undefined,
     mediaUrl: q.mediaUrl ?? undefined,
+    points: q.points,
+    roundIndex: q.roundIndex,
+    roundLabel: q.roundLabel ?? undefined,
+    wrongPoints: q.wrongPoints,
+    blankPoints: q.blankPoints ?? undefined,
+    comboThreshold: q.comboThreshold ?? undefined,
+    comboBonus: q.comboBonus ?? undefined,
+    allCorrect: q.allCorrect,
     timeLimitMs: DEFAULT_TIME_LIMIT_MS,
   }));
 
-  // Blind test pulls independently from its own pool — it's not part of the
-  // main one-question-at-a-time sequence; the admin triggers it as a
-  // side-activity instead of via "next question". Any legacy "speed"-themed
-  // rows (the removed speed round) are simply excluded — dead data, not fed
-  // into any pool.
-  const mainQuestions = allQuestions.filter((q) => q.theme !== "speed" && q.theme !== "ost");
-  const blindTestQuestions = allQuestions.filter((q) => q.theme === "ost");
+  // Blind-test (ost-themed) questions live in the same bank-ordered sequence
+  // as everything else now — "Question suivante" is the only control, no
+  // separate side-activity button. Any legacy "speed"-themed rows (the
+  // removed speed round) are simply excluded — dead data.
+  const mainQuestions = allQuestions.filter((q) => q.theme !== "speed");
 
-  const room = new EventRoom(io, event.id, event.code, mainQuestions, blindTestQuestions, event.livesPerPlayer);
+  const room = new EventRoom(io, event.id, event.code, mainQuestions);
   rooms.set(code, room);
   return room;
 }

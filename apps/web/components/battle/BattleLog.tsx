@@ -16,8 +16,6 @@ const STATUS_LABEL: Record<string, string> = {
 // still shows (stripped of positional prefixes), just untranslated.
 const FLAVOR_LABEL: Record<string, string> = {
   "-resisted": "...ce n'est pas très efficace...",
-  "-supereffective": "C'est super efficace !",
-  "-crit": "Coup critique !",
   "-immune": "Ça n'affecte pas l'adversaire...",
   "-miss": "L'attaque échoue !",
   "-fail": "Mais ça échoue !",
@@ -33,6 +31,7 @@ const CANT_REASON_LABEL: Record<string, string> = {
   slp: "dort profondément...",
   flinch: "a eu une hésitation et ne peut pas attaquer !",
   nopp: "n'a plus de PP pour cette capacité !",
+  recharge: "doit récupérer après son attaque !",
 };
 
 const STAT_LABEL: Record<string, string> = {
@@ -45,14 +44,21 @@ const STAT_LABEL: Record<string, string> = {
   evasion: "Esquive",
 };
 
+// Catch-all for the long tail of obscure protocol tags with no dedicated
+// BattleLogEntry kind (e.g. -activate, -setboost, -zpower...). Whatever
+// isn't explicitly translated above must never show its raw tag token —
+// dropping it and keeping only the descriptive parts is what actually
+// guarantees no literal "-something" jargon leaks into the log, rather
+// than relying on every possible tag being individually listed here.
 function cleanRawLine(text: string): string {
   const parts = text.replace(/^\|+/, "").split("|");
   const tag = parts[0];
   if (FLAVOR_LABEL[tag]) return FLAVOR_LABEL[tag];
-  return parts
+  const rest = parts
+    .slice(1)
     .map((p) => p.replace(/^p[12]a?:\s*/, ""))
-    .filter(Boolean)
-    .join(" ");
+    .filter(Boolean);
+  return rest.length > 0 ? rest.join(" ") : tag.replace(/^-/, "");
 }
 
 function nameFor(side: string, sideNames: { p1: string; p2: string }): string {
@@ -63,8 +69,21 @@ function describe(entry: BattleLogEntry, sideNames: { p1: string; p2: string }):
   switch (entry.kind) {
     case "move":
       return `${nameFor(entry.actor, sideNames)} utilise ${entry.move} !`;
-    case "damage":
-      return `${nameFor(entry.target, sideNames)} : ${entry.hpPercent}% PV`;
+    case "damage": {
+      const name = nameFor(entry.target, sideNames);
+      if (entry.isHeal) {
+        return entry.sourceLabel
+          ? `${name} regagne de la vie (${entry.sourceLabel}) : ${entry.hpPercent}% PV`
+          : `${name} regagne de la vie : ${entry.hpPercent}% PV`;
+      }
+      return entry.sourceLabel
+        ? `${name} (${entry.sourceLabel}) : ${entry.hpPercent}% PV`
+        : `${name} : ${entry.hpPercent}% PV`;
+    }
+    case "crit":
+      return "Coup critique !";
+    case "supereffective":
+      return "C'est super efficace !";
     case "faint":
       return `${nameFor(entry.target, sideNames)} est K.O. !`;
     case "status":
@@ -106,6 +125,12 @@ function describe(entry: BattleLogEntry, sideNames: { p1: string; p2: string }):
       const reason = CANT_REASON_LABEL[entry.reason];
       return reason ? `${nameFor(entry.target, sideNames)} ${reason}` : `${nameFor(entry.target, sideNames)} ne peut pas attaquer !`;
     }
+    case "curestatus":
+      return `${nameFor(entry.target, sideNames)} est soigné(e) !`;
+    case "formechange":
+      return `${nameFor(entry.target, sideNames)} change de forme : ${entry.species} !`;
+    case "transform":
+      return `${nameFor(entry.target, sideNames)} se transforme en ${entry.species} !`;
     case "text":
       return cleanRawLine(entry.text);
   }

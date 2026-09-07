@@ -28,7 +28,6 @@ model Event {
   code      String      @unique
   name      String
   status    EventStatus @default(draft)
-  livesPerPlayer Int    @default(3)
   questionBankId String?
   questionBank   QuestionBank? @relation(fields: [questionBankId], references: [id])
   createdAt DateTime    @default(now())
@@ -64,6 +63,27 @@ model Question {
   choices        Json
   correctIndex   Int
   metadata       Json?
+  points         Int           @default(1)
+  // Which "manche" this question belongs to, and the label shown on the
+  // Elden-Ring-style round banner the first time a question from a new
+  // round is shown (e.g. roundIndex 1, roundLabel "Quizz Classique").
+  roundIndex     Int           @default(0)
+  roundLabel     String?
+  // Scoring beyond the flat "points" default: a wrong pick can cost points
+  // (negative), a blank (no answer at all) can be penalized differently
+  // than an actively wrong pick, and every comboThreshold-th correct
+  // answer in a row awards a one-time comboBonus on top of the normal
+  // points. All optional — rounds that don't set them behave exactly like
+  // the original flat +1/0 scoring.
+  wrongPoints    Int           @default(0)
+  blankPoints    Int?
+  comboThreshold Int?
+  comboBonus     Int?
+  // A joke/gotcha question where every listed choice scores as correct
+  // regardless of pick — only a blank (no answer) can lose points, via
+  // blankPoints. correctIndex is still required by the schema but is
+  // meaningless when this is set.
+  allCorrect     Boolean       @default(false)
 
   answers AnswerLog[]
 }
@@ -74,9 +94,10 @@ model Player {
   event       Event    @relation(fields: [eventId], references: [id])
   name        String
   clan        String?
-  lives       Int
-  eliminated  Boolean  @default(false)
-  eliminatedRound Int?
+  // Running score for the event — +1 per correct answer (inverted for a
+  // Yrud "trap question"), adjusted by Yrud duel wins/losses. Drives final
+  // placement and which two players enter the Pokémon final battle.
+  points      Int      @default(0)
   // Final standing, written once when the event finishes (EventRoom.computeSummary) —
   // null until then. Mirrors shared/summary-types.ts's StandingEntry fields so the
   // live end-game summary and the persisted /api/leaderboard stay in sync.

@@ -11,6 +11,7 @@ import type {
   RevealResult,
   ServerToClientEvents,
   SocketData,
+  TeamSheetMember,
 } from "@yrud/shared";
 import {
   INTERFERENCE_REGISTRY,
@@ -26,6 +27,7 @@ import * as duelEngine from "../duel/engine";
 import type { DuelState } from "../duel/engine";
 import { FinalBattleRunner } from "../showdown/battleRunner";
 import { importTeam } from "../showdown/teamImport";
+import { buildTeamSheet } from "../showdown/teamSheet";
 
 type IoServer = Server<
   ClientToServerEvents,
@@ -34,8 +36,11 @@ type IoServer = Server<
   SocketData
 >;
 
-export const DEFAULT_TIME_LIMIT_MS = 20_000;
+export const DEFAULT_TIME_LIMIT_MS = 10_000;
 const DUEL_ROLL_DELAY_MS = 1200;
+// Meaningful swing for a Yrud face-off, without a config screen — winning
+// nets this many points, losing costs this many (never below 0).
+const DUEL_POINTS = 3;
 
 export class EventRoom {
   readonly eventId: string;
@@ -46,7 +51,6 @@ export class EventRoom {
   private lastReveal?: RevealResult;
   private autoRevealTimer: NodeJS.Timeout | null = null;
   private duelState: DuelState | null = null;
-  private livesPerPlayer: number;
   private clanByPlayer: Record<string, string> = {};
   private battleRunner: FinalBattleRunner | null = null;
   private lastBattleSnapshot?: ArenaSnapshot["lastBattleSnapshot"];
@@ -57,46 +61,33 @@ export class EventRoom {
   // recover until the *next* turn's request arrives. Cached per player so a
   // reconnect can be handed the still-pending request immediately.
   private pendingBattleRequests: Record<string, BattleChoiceRequest> = {};
+  // A finalist's own item/ability/EVs/IVs sheet — cached the same way as
+  // pendingBattleRequests, and for the same reason: a reconnect mid-battle
+  // needs it resent immediately, not just whenever the next server push
+  // happens to fire.
+  private teamSheets: Record<string, TeamSheetMember[]> = {};
   private battlePlan?: string;
   private playerSockets: Record<string, string> = {};
   private connectedPlayers: Set<string> = new Set();
-  // First-eliminated-first — reversed at game end so the last player
-  // standing (besides the winner) places 2nd, and so on down the ranking.
-  private eliminationOrder: string[] = [];
-  private blindTestPool: InternalQuestion[];
-  // Sequential pointer, not random — "next blind test" mirrors "next
-  // question" and the admin already controls ordering via the question
-  // manager's up/down arrows.
-  private blindTestIndex = 0;
-  private blindTestState: { question: InternalQuestion; answers: Record<string, number>; revealed: boolean } | null =
-    null;
-  private blindTestStartedAt: number | null = null;
+  // Who has clicked through the CURRENT Yrud cold-open — reset every time a
+  // new one starts (see start()/next()'s roundIntro branch) so a player who
+  // saw Manche 2's intro doesn't get incorrectly credited for Manche 3's.
+  private introSeenBy: Set<string> = new Set();
 
-  constructor(
-    io: IoServer,
-    eventId: string,
-    code: string,
-    questions: InternalQuestion[],
-    blindTestQuestions: InternalQuestion[],
-    livesPerPlayer: number
-  ) {
+  constructor(io: IoServer, eventId: string, code: string, questions: InternalQuestion[]) {
     this.io = io;
     this.eventId = eventId;
     this.code = code;
     this.socketRoom = `event:${code}`;
-    this.state = engine.createInitialState(questions, livesPerPlayer);
-    this.blindTestPool = blindTestQuestions;
-    this.livesPerPlayer = livesPerPlayer;
+    this.state = engine.createInitialState(questions);
   }
 
-  private toPublicPlayer(p: { id: string; name: string; lives: number; eliminated: boolean }): PublicPlayer {
+  private toPublicPlayer(p: { id: string; name: string; points: number }): PublicPlayer {
     return {
       id: p.id,
       name: p.name,
-      lives: p.lives,
-      maxLives: this.livesPerPlayer,
+      points: p.points,
       clan: resolveClan(this.clanByPlayer[p.id], p.id).id,
-      eliminated: p.eliminated,
       connected: this.connectedPlayers.has(p.id),
     };
   }
@@ -106,7 +97,14 @@ export class EventRoom {
     // Also kept through "reveal" — clients need the prompt/choices on screen
     // for the reveal beat (correctIndex is separately gated behind the
     // question:reveal event itself, so this doesn't leak anything early).
-    if (!q || (this.state.phase !== "question" && this.state.phase !== "reveal")) return undefined;
+    // Also exposed during "roundIntro" — Yrud's per-manche cold-open needs
+    // the upcoming question's roundIndex/roundLabel (prompt/choices are
+    // harmless to reveal early too, nothing scoring-sensitive is at stake).
+    if (
+      !q ||
+      (this.state.phase !== "question" && this.state.phase !== "reveal" && this.state.phase !== "roundIntro")
+    )
+      return undefined;
     return {
       id: q.id,
       theme: q.theme,
@@ -118,50 +116,21 @@ export class EventRoom {
       startedAt: this.state.questionStartedAt ?? Date.now(),
       questionIndex: this.state.questionIndex,
       questionCount: this.state.questions.length,
-    };
-  }
-
-  // Mirrors publicQuestion() but sources the live blind-test question
-  // instead of the main sequence — same PublicQuestion shape, so the client
-  // needs zero new phase-branching to render it.
-  private blindTestQuestion(): PublicQuestion | undefined {
-    const bt = this.blindTestState;
-    if (!bt) return undefined;
-    const q = bt.question;
-    const clipDurationMs = q.metadata?.clipDurationMs ?? 25_000;
-    return {
-      id: q.id,
-      theme: q.theme,
-      prompt: q.prompt,
-      choices: q.choices,
-      metadata: q.metadata,
-      mediaUrl: q.mediaUrl,
-      timeLimitMs: clipDurationMs + 20_000,
-      startedAt: this.blindTestStartedAt ?? Date.now(),
-      questionIndex: this.state.questionIndex,
-      questionCount: this.state.questions.length,
+      points: q.points,
+      roundIndex: q.roundIndex,
+      roundLabel: q.roundLabel,
     };
   }
 
   snapshot(): ArenaSnapshot {
     return {
-      phase: this.battleRunner
-        ? "battle"
-        : this.blindTestState
-          ? this.blindTestState.revealed
-            ? "reveal"
-            : "question"
-          : this.state.phase,
+      phase: this.battleRunner ? "battle" : this.state.phase,
       players: this.state.playerOrder.map((id) => this.toPublicPlayer(this.state.players[id])),
-      question: this.blindTestState ? this.blindTestQuestion() : this.publicQuestion(),
+      question: this.publicQuestion(),
       lastReveal: this.lastReveal,
-      answeredPlayerIds: this.blindTestState
-        ? this.blindTestState.revealed
-          ? []
-          : Object.keys(this.blindTestState.answers)
-        : this.state.phase === "question"
-          ? Object.keys(this.state.answers)
-          : [],
+      answeredPlayerIds: this.state.phase === "question" ? Object.keys(this.state.answers) : [],
+      introSeenPlayerIds:
+        this.state.phase === "intro" || this.state.phase === "roundIntro" ? [...this.introSeenBy] : [],
       battle: this.battleRunner?.snapshot,
       lastBattleSnapshot: this.lastBattleSnapshot,
       battleLog: this.battleRunner?.log ?? this.lastBattleLog,
@@ -173,6 +142,7 @@ export class EventRoom {
         this.duelState && this.duelState.phase === "rolling"
           ? { opponentId: this.duelState.opponentId, rollLog: this.duelState.rollLog }
           : undefined,
+      trapActive: this.state.trapActive,
     };
   }
 
@@ -180,6 +150,8 @@ export class EventRoom {
     this.playerSockets[playerId] = socketId;
     const pendingRequest = this.pendingBattleRequests[playerId];
     if (pendingRequest) this.io.to(socketId).emit("battle:request", { request: pendingRequest });
+    const sheet = this.teamSheets[playerId];
+    if (sheet) this.io.to(socketId).emit("battle:teamSheet", { team: sheet });
   }
 
   // Called whenever a player's socket (re)joins — covers both a brand new
@@ -255,7 +227,7 @@ export class EventRoom {
     await prisma.player.upsert({
       where: { id },
       update: {},
-      create: { id, eventId: this.eventId, name, clan: resolvedClan, lives: player.lives },
+      create: { id, eventId: this.eventId, name, clan: resolvedClan },
     });
 
     this.io.to(this.socketRoom).emit("player:joined", this.toPublicPlayer(player));
@@ -263,14 +235,6 @@ export class EventRoom {
   }
 
   submitAnswer(playerId: string, questionId: string, choiceIndex: number) {
-    if (this.blindTestState && !this.blindTestState.revealed) {
-      if (this.blindTestState.question.id !== questionId) return;
-      if (playerId in this.blindTestState.answers) return;
-      this.blindTestState.answers[playerId] = choiceIndex;
-      this.broadcastSnapshot();
-      return;
-    }
-
     const question = engine.currentQuestion(this.state);
     if (!question || question.id !== questionId) return;
     if (playerId in this.state.answers) return; // already answered — nothing changes
@@ -282,24 +246,59 @@ export class EventRoom {
     }
   }
 
+  // Lobby -> intro. Yrud's cold-open plays here — deliberately no question
+  // and no timer yet, so the first question's clock can't start ticking
+  // while everyone's still watching him monologue.
   async start(): Promise<{ ok: true } | { error: string }> {
     if (this.state.phase !== "lobby") return { error: "La partie a déjà commencé." };
     if (this.state.playerOrder.length === 0) return { error: "Aucun joueur n'est encore inscrit." };
 
-    this.state = engine.startGame(this.state, Date.now());
+    this.state = engine.enterIntro(this.state);
+    this.introSeenBy.clear();
     await prisma.event.update({ where: { id: this.eventId }, data: { status: "live" } });
+    this.broadcastSnapshot();
+    return { ok: true };
+  }
+
+  // Advisory-only — never gates admin:beginQuiz. Lets the console show
+  // "X/Y ont vu l'intro" so the admin can judge for themselves whether to
+  // wait, without risking getting stuck if someone dropped off mid-monologue.
+  markIntroSeen(playerId: string) {
+    if (this.state.phase !== "intro" && this.state.phase !== "roundIntro") return;
+    if (!this.state.players[playerId]) return;
+    if (this.introSeenBy.has(playerId)) return;
+    this.introSeenBy.add(playerId);
+    this.broadcastSnapshot();
+  }
+
+  // Dismisses whichever Yrud cold-open is currently blocking — either the
+  // very first one (intro -> question) or a per-manche one crossing into a
+  // new round (roundIntro -> question, see engine.advance). Either way this
+  // is the only place that question's timer actually starts, which is the
+  // whole point: the client-driven dialogue can take as long as it wants
+  // without silently burning down a clock nobody can see yet.
+  async beginQuiz(): Promise<{ ok: true } | { error: string }> {
+    if (this.state.phase === "intro") {
+      this.state = engine.startGame(this.state, Date.now());
+    } else if (this.state.phase === "roundIntro") {
+      this.state = engine.confirmRoundIntro(this.state, Date.now());
+    } else {
+      return { error: "Rien à confirmer pour l'instant." };
+    }
 
     const question = this.publicQuestion();
     if (question) {
       this.io.to(this.socketRoom).emit("question:new", question);
-      this.scheduleAutoReveal(question.timeLimitMs);
+      // A blind-test (ost) question has no hard deadline — Yrud reveals it
+      // manually once the clip has played long enough, unlike every other
+      // theme's auto-reveal-on-timeout.
+      if (question.theme !== "ost") this.scheduleAutoReveal(question.timeLimitMs);
     }
     this.broadcastSnapshot();
     return { ok: true };
   }
 
   async reveal(): Promise<{ ok: true } | { error: string }> {
-    if (this.blindTestState && !this.blindTestState.revealed) return this.revealBlindTest();
     if (this.state.phase !== "question") return { error: "Aucune question n'est en cours." };
     this.clearAutoReveal();
 
@@ -325,13 +324,10 @@ export class EventRoom {
         result.results.map((r) =>
           prisma.player.update({
             where: { id: r.playerId },
-            data: { lives: r.livesRemaining, eliminated: r.eliminated },
+            data: { points: r.points },
           })
         )
       );
-      for (const r of result.results) {
-        if (r.eliminated) this.eliminationOrder.push(r.playerId);
-      }
     }
 
     this.io.to(this.socketRoom).emit("question:reveal", result);
@@ -340,15 +336,12 @@ export class EventRoom {
   }
 
   async next(): Promise<{ ok: true } | { error: string }> {
-    if (this.blindTestState?.revealed) {
-      this.blindTestState = null;
-      this.blindTestStartedAt = null;
-      this.broadcastSnapshot();
-      return { ok: true };
+    if (this.state.phase !== "reveal") {
+      return { error: "Révèle d'abord la question en cours." };
     }
-    if (this.state.phase !== "reveal") return { error: "Révèle d'abord la question en cours." };
 
     this.state = engine.advance(this.state, Date.now());
+    if (this.state.phase === "roundIntro") this.introSeenBy.clear();
 
     if (this.state.phase === "finished") {
       await prisma.event.update({ where: { id: this.eventId }, data: { status: "finished" } });
@@ -366,103 +359,80 @@ export class EventRoom {
           })
         )
       );
-      this.io.to(this.socketRoom).emit("game:finished", { winnerIds, summary });
-    } else {
+
+      // Don't crown a point-based winner yet — the quiz is only the
+      // qualifier. The real climax is the final battle between the top two
+      // scorers, so announce that matchup instead ("Manche Combat") and
+      // defer game:finished (with the actual champion) to startFinalBattle's
+      // onEnd. If fewer than 2 players even exist, there's no battle to
+      // have — fall back to declaring the quiz result immediately.
+      const byPointsDesc = [...this.state.playerOrder].sort(
+        (a, b) => this.state.players[b].points - this.state.players[a].points
+      );
+      if (byPointsDesc.length >= 2) {
+        const [p1Id, p2Id] = byPointsDesc;
+        this.io.to(this.socketRoom).emit("combat:announce", {
+          player1: { id: p1Id, name: this.state.players[p1Id].name },
+          player2: { id: p2Id, name: this.state.players[p2Id].name },
+        });
+      } else {
+        this.io.to(this.socketRoom).emit("game:finished", { winnerIds, summary });
+      }
+    } else if (this.state.phase === "question") {
+      // Same manche as before — no cold-open needed, straight to the next question.
       const question = this.publicQuestion();
       if (question) {
         this.io.to(this.socketRoom).emit("question:new", question);
-        this.scheduleAutoReveal(question.timeLimitMs);
+        if (question.theme !== "ost") this.scheduleAutoReveal(question.timeLimitMs);
       }
     }
+    // else: phase is "roundIntro" (engine.advance just crossed into a new
+    // manche) — deliberately no question:new/timer here. The client renders
+    // Yrud's per-manche cold-open from the phase + upcoming question's
+    // roundIndex/roundLabel, and beginQuiz() is what actually starts that
+    // manche's first question once the admin dismisses it.
 
     this.broadcastSnapshot();
     return { ok: true };
   }
 
-  // "Next blind test" — an admin-triggered side-activity pulling sequentially
-  // from its own pool instead of being woven into the main "next question"
-  // sequence.
-  async startBlindTest(): Promise<{ ok: true } | { error: string }> {
-    if (this.blindTestState) return { error: "Un blind test est déjà en cours." };
-    if (this.state.phase !== "lobby" && this.state.phase !== "reveal") {
-      return { error: "Impossible de lancer un blind test maintenant." };
-    }
-    if (this.blindTestIndex >= this.blindTestPool.length) {
-      return { error: "Plus de blind test disponible." };
-    }
-
-    const question = this.blindTestPool[this.blindTestIndex];
-    this.blindTestIndex += 1;
-    this.blindTestState = { question, answers: {}, revealed: false };
-    this.blindTestStartedAt = Date.now();
-    this.clearAutoReveal();
-
-    const publicQ = this.blindTestQuestion();
-    if (publicQ) {
-      this.io.to(this.socketRoom).emit("question:new", publicQ);
-      this.scheduleAutoReveal(publicQ.timeLimitMs);
-    }
+  // Free-form escape hatch for anything the structured quiz can't express
+  // live — a mid-event mini-game with its own point rules, a one-off joke
+  // question, a correction. Never below 0, same floor as every other
+  // scoring path.
+  async adjustPoints(playerId: string, delta: number): Promise<{ ok: true } | { error: string }> {
+    const player = this.state.players[playerId];
+    if (!player) return { error: "Joueur introuvable." };
+    const points = Math.max(0, player.points + delta);
+    this.state = { ...this.state, players: { ...this.state.players, [playerId]: { ...player, points } } };
+    await prisma.player.update({ where: { id: playerId }, data: { points } });
     this.broadcastSnapshot();
     return { ok: true };
   }
 
-  private async revealBlindTest(): Promise<{ ok: true } | { error: string }> {
-    const bt = this.blindTestState;
-    if (!bt) return { error: "Aucun blind test en cours." };
-    this.clearAutoReveal();
-
-    const results = this.state.playerOrder
-      .filter((id) => !this.state.players[id].eliminated)
-      .map((playerId) => {
-        const player = this.state.players[playerId];
-        const choiceIndex = bt.answers[playerId] ?? null;
-        const correct = choiceIndex === bt.question.correctIndex;
-        const lives = correct ? player.lives : Math.max(0, player.lives - 1);
-        const eliminated = !correct && lives === 0;
-        return { playerId, choiceIndex, correct, livesRemaining: lives, eliminated };
-      });
-
-    for (const r of results) {
-      const player = this.state.players[r.playerId];
-      const updated = { ...player, lives: r.livesRemaining, eliminated: r.eliminated };
-      this.state = { ...this.state, players: { ...this.state.players, [r.playerId]: updated } };
-      if (r.eliminated) this.eliminationOrder.push(r.playerId);
-    }
-
-    const round = await prisma.round.create({
-      data: { eventId: this.eventId, theme: bt.question.theme, index: this.state.questionIndex },
-    });
-    await prisma.answerLog.createMany({
-      data: results.map((r) => ({
-        roundId: round.id,
-        playerId: r.playerId,
-        questionId: bt.question.id,
-        correct: r.correct,
-        responseMs: 0,
-      })),
-    });
-    await Promise.all(
-      results.map((r) =>
-        prisma.player.update({ where: { id: r.playerId }, data: { lives: r.livesRemaining, eliminated: r.eliminated } })
-      )
-    );
-
-    const result: RevealResult = { correctIndex: bt.question.correctIndex, results };
-    this.lastReveal = result;
-    bt.revealed = true;
-
-    this.io.to(this.socketRoom).emit("question:reveal", result);
+  async toggleTrap(): Promise<{ ok: true } | { error: string }> {
+    if (this.state.phase !== "question") return { error: "Aucune question en cours à piéger." };
+    this.state = engine.setTrap(this.state, !this.state.trapActive);
     this.broadcastSnapshot();
     return { ok: true };
   }
 
-  async sendTaunt(message: string): Promise<{ ok: true } | { error: string }> {
+  async sendTaunt(message: string, targetPlayerId?: string): Promise<{ ok: true } | { error: string }> {
     const trimmed = message.trim().slice(0, 200);
     if (!trimmed) return { error: "La provocation ne peut pas être vide." };
+    if (targetPlayerId && !this.state.players[targetPlayerId]) return { error: "Joueur introuvable." };
 
     await prisma.tauntLog.create({ data: { eventId: this.eventId, message: trimmed } });
-    this.io.to(this.socketRoom).emit("yrud:taunt", { message: trimmed });
-    this.extendActiveTimers(TAUNT_DISPLAY_MS);
+    if (targetPlayerId) {
+      const socketId = this.playerSockets[targetPlayerId];
+      if (socketId) this.io.to(socketId).emit("yrud:taunt", { message: trimmed });
+      // Only this one player is actually blocked by the overlay — extending
+      // the shared question deadline for everyone else would just be giving
+      // them free extra time they never lost.
+    } else {
+      this.io.to(this.socketRoom).emit("yrud:taunt", { message: trimmed });
+      this.extendActiveTimers(TAUNT_DISPLAY_MS);
+    }
     return { ok: true };
   }
 
@@ -480,7 +450,7 @@ export class EventRoom {
   async challengeDuel(opponentId: string): Promise<{ ok: true } | { error: string }> {
     if (this.duelState) return { error: "Un duel est déjà en cours." };
     const opponent = this.state.players[opponentId];
-    if (!opponent || opponent.eliminated) return { error: "Ce joueur n'est pas éligible pour un duel." };
+    if (!opponent) return { error: "Ce joueur n'est pas éligible pour un duel." };
 
     this.duelState = duelEngine.startDuel(opponentId);
     this.io.to(this.socketRoom).emit("duel:start", { opponentId });
@@ -509,16 +479,14 @@ export class EventRoom {
     }
 
     const { opponentId, winner, rollLog } = nextState;
-    if (winner === "yrud") {
-      const opponent = this.state.players[opponentId];
-      if (opponent) {
-        const lives = Math.max(0, opponent.lives - 1);
-        const eliminated = lives === 0;
-        const updated = { ...opponent, lives, eliminated };
-        this.state = { ...this.state, players: { ...this.state.players, [opponentId]: updated } };
-        await prisma.player.update({ where: { id: opponentId }, data: { lives, eliminated } });
-        if (eliminated) this.eliminationOrder.push(opponentId);
-      }
+    const opponent = this.state.players[opponentId];
+    if (opponent) {
+      // Yrud winning costs the challenger points; the challenger winning
+      // earns them the same amount — same stakes either way.
+      const points = winner === "yrud" ? Math.max(0, opponent.points - DUEL_POINTS) : opponent.points + DUEL_POINTS;
+      const updated = { ...opponent, points };
+      this.state = { ...this.state, players: { ...this.state.players, [opponentId]: updated } };
+      await prisma.player.update({ where: { id: opponentId }, data: { points } });
     }
 
     await prisma.duelLog.create({
@@ -568,6 +536,14 @@ export class EventRoom {
     this.lastBattleSnapshot = undefined;
     this.lastBattleLog = undefined;
     this.pendingBattleRequests = {};
+    this.teamSheets = {
+      [player1Id]: buildTeamSheet(team1.packed),
+      [player2Id]: buildTeamSheet(team2.packed),
+    };
+    for (const [playerId, sheet] of Object.entries(this.teamSheets)) {
+      const socketId = this.playerSockets[playerId];
+      if (socketId) this.io.to(socketId).emit("battle:teamSheet", { team: sheet });
+    }
     this.battleRunner = new FinalBattleRunner(
       { id: player1Id, name: player1.name, packedTeam: team1.packed },
       { id: player2Id, name: player2.name, packedTeam: team2.packed },
@@ -587,6 +563,17 @@ export class EventRoom {
           this.battleRunner = null;
           this.io.to(this.socketRoom).emit("battle:end", { winnerId });
           this.broadcastSnapshot();
+          // The quiz-end summary (computeSummary, called from next()) is
+          // built before the final battle even starts, so its
+          // finalBattleWinnerName is always null at that point — recompute
+          // and re-push it now that the actual battle winner is known, so
+          // the grand-finale screen shows the real champion, not a stale
+          // "no battle yet" summary.
+          this.computeSummary(engine.winners(this.state))
+            .then((summary) => {
+              this.io.to(this.socketRoom).emit("game:finished", { winnerIds: engine.winners(this.state), summary });
+            })
+            .catch((err) => console.error(`[${this.code}] post-battle summary recompute failed:`, err));
         },
         // The battle simulator's own internal pump loops can throw on a bad
         // request or a species the sim only half-created from an
@@ -643,7 +630,7 @@ export class EventRoom {
     return { ok: true };
   }
 
-  private async computeSummary(winnerIds: string[]): Promise<EventSummary> {
+  private async computeSummary(_winnerIds: string[]): Promise<EventSummary> {
     const [answers, duelLogs, tauntCount, prankCount] = await Promise.all([
       prisma.answerLog.findMany({ where: { round: { eventId: this.eventId } }, select: { playerId: true, correct: true } }),
       prisma.duelLog.findMany({ where: { eventId: this.eventId }, select: { winner: true } }),
@@ -656,20 +643,28 @@ export class EventRoom {
       if (a.correct) correctByPlayer.set(a.playerId, (correctByPlayer.get(a.playerId) ?? 0) + 1);
     }
 
-    // Winner(s) share 1st place, then reverse elimination order — the last
-    // player eliminated placed higher than someone knocked out earlier.
-    const rest = [...this.eliminationOrder].reverse().filter((id) => !winnerIds.includes(id));
-    const orderedIds = [...winnerIds, ...rest];
+    // Ranked purely by final points — nobody was ever knocked out, so
+    // there's no elimination order to fall back on anymore. Standard
+    // competition ranking: ties share a placement, the next rank after a
+    // tie skips ahead by the tie size (1,1,3 not 1,1,2).
+    const orderedIds = [...this.state.playerOrder].sort(
+      (a, b) => this.state.players[b].points - this.state.players[a].points
+    );
+    let lastPlacement = 0;
+    let lastPoints: number | null = null;
     const standings = orderedIds.map((id, i) => {
       const player = this.state.players[id];
+      const points = player?.points ?? 0;
+      const placement = points === lastPoints ? lastPlacement : i + 1;
+      lastPlacement = placement;
+      lastPoints = points;
       return {
         playerId: id,
         name: player?.name ?? "?",
         clan: resolveClan(this.clanByPlayer[id], id).id,
-        // Standard competition ranking: ties share a placement, the next
-        // rank after a tie skips ahead by the tie size (1,1,3 not 1,1,2).
-        placement: i < winnerIds.length ? 1 : i + 1,
+        placement,
         correctAnswers: correctByPlayer.get(id) ?? 0,
+        points,
       };
     });
 

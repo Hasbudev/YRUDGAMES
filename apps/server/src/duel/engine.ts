@@ -11,11 +11,9 @@ const MOVES: Record<DuelActor, { move: string; accuracy: number }> = {
   opponent: { move: "Leaf Storm", accuracy: 0.7 },
 };
 
-// Sudden-death on the first miss made the tension bar meaningless (an
-// abstract "vibes" meter with no real stakes tied to it). Three strikes per
-// side gives the fight actual shape — a miss costs a "life" and the bar can
-// show real remaining chances per side instead of a fuzzy shared gauge.
-const MISSES_TO_LOSE = 3;
+// First miss loses — a real 1-life duel, matching the rest of the event now
+// that the quiz itself has no lives left either.
+const MISSES_TO_LOSE = 1;
 
 export type DuelState =
   | { opponentId: string; phase: "rolling"; rollLog: DuelRoll[] }

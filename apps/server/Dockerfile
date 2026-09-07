@@ -30,4 +30,7 @@ ENV NODE_ENV=production
 WORKDIR /app/apps/server
 
 EXPOSE 4000
-CMD ["node", "dist/index.js"]
+# Apply any pending migrations before starting — safe to run every boot
+# (no-op if the DB is already up to date), and means a deploy can never
+# start the server against a schema the new code doesn't match.
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/index.js"]

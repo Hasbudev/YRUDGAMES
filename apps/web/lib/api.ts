@@ -82,7 +82,6 @@ export async function listQuestionBanks(): Promise<QuestionBankSummary[]> {
 export async function createEvent(input: {
   name: string;
   questionBankId: string;
-  livesPerPlayer: number;
 }): Promise<EventSummary> {
   const res = await adminFetch("/api/events", {
     method: "POST",
@@ -112,20 +111,32 @@ export interface MelodyNoteInput {
   durationMs: number;
 }
 
+// Round grouping (for the "MANCHE N" banner) and scoring beyond the flat
+// default — shared across every theme, so questions of any theme can be
+// grouped into the same manche.
+export interface RoundFields {
+  roundIndex?: number;
+  roundLabel?: string;
+  wrongPoints?: number;
+  blankPoints?: number;
+  comboThreshold?: number;
+  comboBonus?: number;
+  allCorrect?: boolean;
+}
+
 export type QuestionInput =
-  | { theme: "trivia"; prompt: string; choices: string[]; correctIndex: number; mediaUrl?: string }
-  | {
+  | ({ theme: "trivia"; prompt: string; choices: string[]; correctIndex: number; mediaUrl?: string; points?: number } & RoundFields)
+  | ({
       theme: "ost";
       prompt: string;
       choices: string[];
       correctIndex: number;
       mediaUrl?: string;
       notes?: MelodyNoteInput[];
-      youtubeId?: string;
-      startSeconds?: number;
-      clipDurationMs?: number;
-    }
-  | { theme: "stats"; prompt: string; choices: [string, string]; correctIndex: 0 | 1; stat: string };
+      audioFile?: string;
+      points?: number;
+    } & RoundFields)
+  | ({ theme: "stats"; prompt: string; choices: [string, string]; correctIndex: 0 | 1; stat: string; points?: number } & RoundFields);
 
 export interface QuestionRecord {
   id: string;
@@ -138,10 +149,16 @@ export interface QuestionRecord {
   metadata: {
     notes?: MelodyNoteInput[];
     stat?: string;
-    youtubeId?: string;
-    startSeconds?: number;
-    clipDurationMs?: number;
+    audioFile?: string;
   } | null;
+  points: number;
+  roundIndex: number;
+  roundLabel: string | null;
+  wrongPoints: number;
+  blankPoints: number | null;
+  comboThreshold: number | null;
+  comboBonus: number | null;
+  allCorrect: boolean;
 }
 
 class ApiError extends Error {

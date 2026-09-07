@@ -24,9 +24,11 @@ interface RevealCardProps {
   question: PublicQuestion;
   correctIndex: number;
   myResult?: PlayerRevealResult;
+  trap?: boolean;
+  allCorrect?: boolean;
 }
 
-export function RevealCard({ question, correctIndex, myResult }: RevealCardProps) {
+export function RevealCard({ question, correctIndex, myResult, trap, allCorrect }: RevealCardProps) {
   const bannerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const correctRef = useRef<HTMLDivElement>(null);
@@ -87,12 +89,23 @@ export function RevealCard({ question, correctIndex, myResult }: RevealCardProps
           {spectating ? "La bonne réponse était..." : won ? "✓ Bonne réponse !" : answered ? "✗ Mauvaise réponse..." : "⏱ Trop lent(e) !"}
         </div>
 
+        {trap && (
+          <p className="self-center rounded-full border border-crimson/50 bg-crimson/10 px-4 py-1 text-center text-xs font-bold uppercase tracking-wide text-crimson-bright">
+            🪤 Piège de Yrud — les bonnes réponses ont compté comme fausses !
+          </p>
+        )}
+        {allCorrect && (
+          <p className="self-center rounded-full border border-gold/50 bg-gold/10 px-4 py-1 text-center text-xs font-bold uppercase tracking-wide text-gold-bright">
+            🎉 Toutes les réponses comptaient comme bonnes !
+          </p>
+        )}
+
         <h2 className="font-display text-xl font-semibold text-ink">{question.prompt}</h2>
 
         {usesPillArt ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {question.choices.map((choice, i) => {
-              const isCorrect = i === correctIndex;
+              const isCorrect = allCorrect || i === correctIndex;
               const isMyWrongPick = !spectating && !isCorrect && i === myResult?.choiceIndex;
               return (
                 <div key={i} ref={isCorrect ? correctRef : undefined}>
@@ -109,7 +122,7 @@ export function RevealCard({ question, correctIndex, myResult }: RevealCardProps
         ) : (
           <div className={isStats ? "grid grid-cols-2 items-stretch gap-4" : "grid grid-cols-1 gap-3 sm:grid-cols-2"}>
             {question.choices.map((choice, i) => {
-              const isCorrect = i === correctIndex;
+              const isCorrect = allCorrect || i === correctIndex;
               const isMyWrongPick = !spectating && !isCorrect && i === myResult?.choiceIndex;
               return (
                 <div
@@ -154,11 +167,8 @@ export function RevealCard({ question, correctIndex, myResult }: RevealCardProps
 
         {!spectating && myResult && (
           <p className="text-center text-sm text-ink-muted">
-            {myResult.eliminated
-              ? "Tu perds ta dernière vie... éliminé(e) !"
-              : !won
-                ? "Tu perds une vie."
-                : "Tu conserves toutes tes vies."}
+            {won ? `+${question.points} point${question.points === 1 ? "" : "s"} !` : "Aucun point cette fois."} Total :{" "}
+            {myResult.points} pt{myResult.points === 1 ? "" : "s"}.
           </p>
         )}
       </div>

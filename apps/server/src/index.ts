@@ -82,6 +82,12 @@ io.on("connection", async (socket) => {
     room.submitAnswer(playerId, questionId, choiceIndex);
   });
 
+  socket.on("player:introSeen", () => {
+    const playerId = socket.data.playerId;
+    if (!playerId) return;
+    room.markIntroSeen(playerId);
+  });
+
   function requireAdmin(ack?: (res: { ok: true } | { error: string }) => void): boolean {
     if (socket.data.role === "admin") return true;
     ack?.({ error: "Non autorisé." });
@@ -91,6 +97,11 @@ io.on("connection", async (socket) => {
   socket.on("admin:start", async (ack) => {
     if (!requireAdmin(ack)) return;
     ack?.(await room.start());
+  });
+
+  socket.on("admin:beginQuiz", async (ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(await room.beginQuiz());
   });
 
   socket.on("admin:reveal", async (ack) => {
@@ -103,14 +114,19 @@ io.on("connection", async (socket) => {
     ack?.(await room.next());
   });
 
-  socket.on("admin:startBlindTest", async (ack) => {
+  socket.on("admin:toggleTrap", async (ack) => {
     if (!requireAdmin(ack)) return;
-    ack?.(await room.startBlindTest());
+    ack?.(await room.toggleTrap());
   });
 
-  socket.on("admin:taunt", async ({ message }, ack) => {
+  socket.on("admin:adjustPoints", async ({ playerId, delta }, ack) => {
     if (!requireAdmin(ack)) return;
-    ack?.(await room.sendTaunt(message));
+    ack?.(await room.adjustPoints(playerId, delta));
+  });
+
+  socket.on("admin:taunt", async ({ message, playerId }, ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(await room.sendTaunt(message, playerId));
   });
 
   socket.on("admin:triggerPrank", async ({ prankId }, ack) => {

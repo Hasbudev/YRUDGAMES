@@ -29,22 +29,6 @@ function serializeNotes(notes?: { freq: number; durationMs: number }[]): string 
   return (notes ?? []).map((n) => `${n.freq}:${n.durationMs}`).join(", ");
 }
 
-// Accepts watch?v=, youtu.be/, embed/, and shorts/ URL forms — also passes
-// through a bare 11-char id so re-editing an existing question round-trips.
-function extractYouTubeId(input: string): string | undefined {
-  const trimmed = input.trim();
-  if (!trimmed) return undefined;
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/shorts\/|youtu\.be\/)([\w-]{11})/,
-  ];
-  for (const pattern of patterns) {
-    const match = trimmed.match(pattern);
-    if (match) return match[1];
-  }
-  if (/^[\w-]{11}$/.test(trimmed)) return trimmed;
-  return undefined;
-}
-
 interface QuestionFormProps {
   initial?: QuestionRecord | null;
   onSubmit: (input: QuestionInput) => Promise<void> | void;
@@ -63,11 +47,27 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
   const [mediaUrl, setMediaUrl] = useState(initial?.mediaUrl ?? "");
   const [notesText, setNotesText] = useState(serializeNotes(initial?.metadata?.notes));
   const [stat, setStat] = useState(initial?.metadata?.stat ?? "");
-  const [youtubeUrl, setYoutubeUrl] = useState(initial?.metadata?.youtubeId ?? "");
-  const [startSeconds, setStartSeconds] = useState(initial?.metadata?.startSeconds ?? 0);
-  const [clipDurationSeconds, setClipDurationSeconds] = useState(
-    initial?.metadata?.clipDurationMs ? Math.round(initial.metadata.clipDurationMs / 1000) : 25
-  );
+  const [audioFile, setAudioFile] = useState(initial?.metadata?.audioFile ?? "");
+  const [points, setPoints] = useState(initial?.points ?? 1);
+  const [roundIndex, setRoundIndex] = useState(initial?.roundIndex ?? 0);
+  const [roundLabel, setRoundLabel] = useState(initial?.roundLabel ?? "");
+  const [wrongPoints, setWrongPoints] = useState(initial?.wrongPoints ?? 0);
+  const [blankPoints, setBlankPoints] = useState(initial?.blankPoints ?? "");
+  const [comboThreshold, setComboThreshold] = useState(initial?.comboThreshold ?? "");
+  const [comboBonus, setComboBonus] = useState(initial?.comboBonus ?? "");
+  const [allCorrect, setAllCorrect] = useState(initial?.allCorrect ?? false);
+
+  function roundFields() {
+    return {
+      roundIndex,
+      roundLabel: roundLabel.trim() || undefined,
+      wrongPoints,
+      blankPoints: blankPoints === "" ? undefined : Number(blankPoints),
+      comboThreshold: comboThreshold === "" ? undefined : Number(comboThreshold),
+      comboBonus: comboBonus === "" ? undefined : Number(comboBonus),
+      allCorrect,
+    };
+  }
 
   useEffect(() => {
     if (theme === "stats" && choices.length !== 2) setChoices(["", ""]);
@@ -99,11 +99,12 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
         choices: [trimmedChoices[0] ?? "", trimmedChoices[1] ?? ""],
         correctIndex: correctIndex === 1 ? 1 : 0,
         stat: stat.trim(),
+        points,
+        ...roundFields(),
       });
       return;
     }
     if (theme === "ost") {
-      const youtubeId = extractYouTubeId(youtubeUrl);
       onSubmit({
         theme: "ost",
         prompt: prompt.trim(),
@@ -111,13 +112,13 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
         correctIndex,
         mediaUrl: mediaUrl.trim() || undefined,
         notes: parseNotes(notesText),
-        youtubeId,
-        startSeconds: youtubeId ? startSeconds : undefined,
-        clipDurationMs: youtubeId ? clipDurationSeconds * 1000 : undefined,
+        audioFile: audioFile.trim() || undefined,
+        points,
+        ...roundFields(),
       });
       return;
     }
-    onSubmit({ theme: "trivia", prompt: prompt.trim(), choices: trimmedChoices, correctIndex });
+    onSubmit({ theme: "trivia", prompt: prompt.trim(), choices: trimmedChoices, correctIndex, points, ...roundFields() });
   }
 
   const canSubmit =
@@ -163,45 +164,23 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
         <>
           <div className="flex flex-col gap-1 rounded-lg border border-gold/40 bg-gold/5 p-3">
             <label className="text-xs font-bold uppercase tracking-wide text-gold">
-              Blind test — lien YouTube (remix uniquement, anti-copyright)
+              Blind test — fichier audio local
             </label>
             <input
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              placeholder="https://www.youtube.com/watch?v=..."
+              value={audioFile}
+              onChange={(e) => setAudioFile(e.target.value)}
+              placeholder="ex: 1ZoneZero.wav"
               className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
             />
-            {youtubeUrl.trim() && !extractYouTubeId(youtubeUrl) && (
-              <p className="text-xs text-crimson-bright">Lien YouTube non reconnu.</p>
-            )}
-            <div className="flex gap-2">
-              <label className="flex flex-1 flex-col gap-1 text-xs text-ink-muted">
-                Début (secondes)
-                <input
-                  type="number"
-                  min={0}
-                  value={startSeconds}
-                  onChange={(e) => setStartSeconds(Math.max(0, Number(e.target.value) || 0))}
-                  className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
-                />
-              </label>
-              <label className="flex flex-1 flex-col gap-1 text-xs text-ink-muted">
-                Durée du clip (secondes)
-                <input
-                  type="number"
-                  min={10}
-                  max={60}
-                  value={clipDurationSeconds}
-                  onChange={(e) => setClipDurationSeconds(Math.min(60, Math.max(10, Number(e.target.value) || 25)))}
-                  className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
-                />
-              </label>
-            </div>
+            <p className="text-xs text-ink-muted">
+              Nom exact du fichier dans apps/web/public/blindtest — pas de lecture automatique de la durée, Yrud
+              révèle la réponse quand il le décide.
+            </p>
           </div>
           <input
             value={mediaUrl}
             onChange={(e) => setMediaUrl(e.target.value)}
-            placeholder="URL du clip audio (repli si pas de lien YouTube)"
+            placeholder="URL du clip audio (repli si pas de fichier local)"
             className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
           />
           <input
@@ -212,6 +191,85 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
           />
         </>
       )}
+
+      <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">Manche &amp; score</p>
+        <div className="flex flex-wrap gap-2">
+          <label className="flex w-28 flex-col gap-1 text-xs text-ink-muted">
+            N° de manche
+            <input
+              type="number"
+              min={0}
+              value={roundIndex}
+              onChange={(e) => setRoundIndex(Math.max(0, Number(e.target.value) || 0))}
+              className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-1 flex-col gap-1 text-xs text-ink-muted">
+            Titre de la manche (banière)
+            <input
+              value={roundLabel}
+              onChange={(e) => setRoundLabel(e.target.value)}
+              placeholder="ex: Quizz Classique"
+              className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+            />
+          </label>
+          <label className="flex w-28 flex-col gap-1 text-xs text-ink-muted">
+            Points (bonne réponse)
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={points}
+              onChange={(e) => setPoints(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+              className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+            />
+          </label>
+          <label className="flex w-32 flex-col gap-1 text-xs text-ink-muted">
+            Pénalité mauvaise rép.
+            <input
+              type="number"
+              max={0}
+              value={wrongPoints}
+              onChange={(e) => setWrongPoints(Math.min(0, Number(e.target.value) || 0))}
+              className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+            />
+          </label>
+          <label className="flex w-32 flex-col gap-1 text-xs text-ink-muted">
+            Pénalité si blanc (défaut = idem)
+            <input
+              type="number"
+              value={blankPoints}
+              onChange={(e) => setBlankPoints(e.target.value === "" ? "" : Number(e.target.value))}
+              className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+            />
+          </label>
+          <label className="flex w-28 flex-col gap-1 text-xs text-ink-muted">
+            Combo : tous les
+            <input
+              type="number"
+              min={2}
+              value={comboThreshold}
+              onChange={(e) => setComboThreshold(e.target.value === "" ? "" : Number(e.target.value))}
+              className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+            />
+          </label>
+          <label className="flex w-28 flex-col gap-1 text-xs text-ink-muted">
+            Combo : bonus
+            <input
+              type="number"
+              min={1}
+              value={comboBonus}
+              onChange={(e) => setComboBonus(e.target.value === "" ? "" : Number(e.target.value))}
+              className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+            />
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-ink-muted">
+          <input type="checkbox" checked={allCorrect} onChange={(e) => setAllCorrect(e.target.checked)} className="accent-gold" />
+          Toutes les réponses sont bonnes (question blague — seul un blanc peut coûter des points, via la pénalité si blanc)
+        </label>
+      </div>
 
       <div className="flex flex-col gap-2">
         {choices.map((choice, i) => (

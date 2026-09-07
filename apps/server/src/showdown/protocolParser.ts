@@ -21,6 +21,9 @@ const NOISE_PREFIXES = [
   // simulator internals like "Multiscale weaken", never something a player
   // chose to see, and have no translation worth writing.
   "debug", "bigerror",
+  // Pure protocol bookkeeping / redundant with other events — nothing a
+  // spectator needs a log line for.
+  "-center", "-waiting", "-combine", "-nothing", "-hint", "swap",
 ];
 
 function emptyActive(): BattleActivePokemon | null {
@@ -47,9 +50,21 @@ function sideKeyOf(positional: string): "p1" | "p2" | null {
   return null;
 }
 
+// Only used for the POKEMON field itself in a fallback path — the real
+// species must come from the DETAILS field (see speciesFromDetails), not
+// from the nickname a player gave their Pokémon on team import.
 function speciesOf(positional: string): string {
   const idx = positional.indexOf(": ");
   return idx === -1 ? positional : positional.slice(idx + 2);
+}
+
+// DETAILS looks like "Rotom-Wash, L100, M" (species, then optional level/
+// gender/shiny flags, comma-separated) — species is always the first field.
+// Using the POKEMON field instead (as this used to) silently breaks sprite
+// lookup for any nicknamed Pokémon, since PokemonSprite slugifies whatever
+// string it's given and has no way to know a nickname isn't a real species.
+function speciesFromDetails(details: string): string {
+  return details.split(",")[0]?.trim() || details;
 }
 
 function hpPercentFrom(hpField: string): { hpPercent: number; fainted: boolean } {
@@ -61,6 +76,21 @@ function hpPercentFrom(hpField: string): { hpPercent: number; fainted: boolean }
 
 function sideFor(snapshot: BattleSnapshot, key: "p1" | "p2"): BattleSideSnapshot {
   return snapshot[key];
+}
+
+// A `[from] item: Leftovers` / `[from] ability: Rough Skin` tag is how the
+// protocol actually reveals a held item or ability the first time it does
+// something — e.g. Leftovers healing at end of turn. Dropping it (as the
+// old -damage/-heal handling did) meant spectators only ever saw an
+// anonymous HP tick, never the reveal itself.
+function parseFromTag(parts: string[]): string | undefined {
+  for (const part of parts) {
+    const tagged = part.match(/^\[from\]\s*(?:item|ability|move):\s*(.+)$/i);
+    if (tagged) return tagged[1].trim();
+    const bare = part.match(/^\[from\]\s*(.+)$/);
+    if (bare) return bare[1].trim();
+  }
+  return undefined;
 }
 
 export function applyProtocolChunk(chunk: string, state: ParserState): { state: ParserState; log: BattleLogEntry[] } {
@@ -96,7 +126,7 @@ export function applyProtocolChunk(chunk: string, state: ParserState): { state: 
         // gender/hp/maxHp are placeholders here — battleRunner overwrites
         // them from the live Battle object right after, same as field state.
         const active: BattleActivePokemon = {
-          species: speciesOf(parts[1]),
+          species: speciesFromDetails(parts[2] ?? ""),
           level: 100,
           gender: "N",
           hpPercent,
@@ -114,6 +144,21 @@ export function applyProtocolChunk(chunk: string, state: ParserState): { state: 
         log.push({ kind: "move", actor: key ?? parts[1], move: parts[2], target: parts[3] });
         break;
       }
+      // Dedicated kinds (not just flavor text) so the arena can react with
+      // real VFX — a crit or a super-effective hit is exactly the kind of
+      // moment a spectator-facing "climax" screen should sell hard.
+      case "-crit": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        log.push({ kind: "crit", target: key });
+        break;
+      }
+      case "-supereffective": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        log.push({ kind: "supereffective", target: key });
+        break;
+      }
       case "-damage":
       case "-heal": {
         const key = sideKeyOf(parts[1]);
@@ -124,7 +169,13 @@ export function applyProtocolChunk(chunk: string, state: ParserState): { state: 
           ...snapshot,
           [key]: { ...sideFor(snapshot, key), active: prevActive ? { ...prevActive, hpPercent, fainted } : prevActive },
         };
-        log.push({ kind: "damage", target: key, hpPercent });
+        log.push({
+          kind: "damage",
+          target: key,
+          hpPercent,
+          isHeal: type === "-heal",
+          sourceLabel: parseFromTag(parts.slice(3)),
+        });
         break;
       }
       case "faint": {
@@ -265,6 +316,70 @@ export function applyProtocolChunk(chunk: string, state: ParserState): { state: 
         const key = sideKeyOf(parts[1]);
         if (!key) break;
         log.push({ kind: "cant", target: key, reason: parts[2] ?? "" });
+        break;
+      }
+      case "-sethp": {
+        // Pain Split and similar — sets HP directly rather than delta-ing
+        // it, but visually it's the same "HP bar moved" beat as -damage/-heal.
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        const { hpPercent, fainted } = hpPercentFrom(parts[2] ?? "0/0");
+        const prevActive = sideFor(snapshot, key).active;
+        snapshot = {
+          ...snapshot,
+          [key]: { ...sideFor(snapshot, key), active: prevActive ? { ...prevActive, hpPercent, fainted } : prevActive },
+        };
+        log.push({ kind: "damage", target: key, hpPercent });
+        break;
+      }
+      case "-curestatus":
+      case "-cureteam": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        const prevActive = sideFor(snapshot, key).active;
+        snapshot = {
+          ...snapshot,
+          [key]: { ...sideFor(snapshot, key), active: prevActive ? { ...prevActive, status: undefined } : prevActive },
+        };
+        log.push({ kind: "curestatus", target: key });
+        break;
+      }
+      // Mega Evolution/Primal Reversion don't exist in gen9, but permanent
+      // (detailschange, e.g. a frozen Shaymin-Sky) and temporary
+      // (-formechange, e.g. Ogerpon/Terapagos on Terastallize, Zygarde,
+      // Mimikyu's Busted form) forme changes are very much live gen9
+      // mechanics — without this, the arena sprite keeps showing the
+      // pre-change form/species forever since nothing else corrects it.
+      case "detailschange":
+      case "-formechange":
+      case "replace": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        const species = speciesFromDetails(parts[2] ?? "");
+        const prevActive = sideFor(snapshot, key).active;
+        snapshot = {
+          ...snapshot,
+          [key]: { ...sideFor(snapshot, key), active: prevActive ? { ...prevActive, species } : prevActive },
+        };
+        log.push({ kind: "formechange", target: key, species });
+        break;
+      }
+      case "-mustrecharge": {
+        const key = sideKeyOf(parts[1]);
+        if (!key) break;
+        log.push({ kind: "cant", target: key, reason: "recharge" });
+        break;
+      }
+      case "-transform": {
+        const key = sideKeyOf(parts[1]);
+        if (!key || !parts[2]) break;
+        const species = parts[2];
+        const prevActive = sideFor(snapshot, key).active;
+        snapshot = {
+          ...snapshot,
+          [key]: { ...sideFor(snapshot, key), active: prevActive ? { ...prevActive, species } : prevActive },
+        };
+        log.push({ kind: "transform", target: key, species });
         break;
       }
       case "turn": {

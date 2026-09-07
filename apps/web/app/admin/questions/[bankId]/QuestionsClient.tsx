@@ -140,7 +140,15 @@ export function QuestionsClient({ bankId }: { bankId: string }) {
 
   return (
     <div className="flex min-h-screen flex-col items-center gap-6 p-8">
-      <h1 className="font-display text-2xl font-bold text-gold-bright">Questions de la banque</h1>
+      <div className="flex w-full max-w-2xl items-center justify-between">
+        <h1 className="font-display text-2xl font-bold text-gold-bright">Questions de la banque</h1>
+        <Link
+          href={`/admin/questions/${bankId}/review`}
+          className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-sm font-semibold text-gold-bright hover:bg-gold/20"
+        >
+          🔍 Mode revue
+        </Link>
+      </div>
       {loadError && <p className="text-sm text-crimson-bright">{loadError}</p>}
 
       <div className="flex w-full max-w-2xl flex-col gap-3">

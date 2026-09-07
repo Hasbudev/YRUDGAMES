@@ -33,6 +33,64 @@ describe("protocolParser", () => {
     expect(log.some((l) => l.kind === "turn" && l.turn === 1)).toBe(true);
   });
 
+  it("uses the DETAILS species, not the nickname, for the active Pokémon", () => {
+    const { state, log } = applyProtocolChunk(
+      ["|teamsize|p1|1", "|switch|p1a: Big Boy|Ting-Lu, L100|100/100"].join("\n"),
+      freshState()
+    );
+    expect(state.snapshot.p1.active?.species).toBe("Ting-Lu");
+    expect(log.some((l) => l.kind === "switch" && l.species === "Ting-Lu")).toBe(true);
+  });
+
+  it("reveals the item/ability behind a passive heal or damage tick via the [from] tag", () => {
+    let { state } = applyProtocolChunk(
+      ["|teamsize|p1|1", "|switch|p1a: Ferrothorn|Ferrothorn, F|50/100"].join("\n"),
+      freshState()
+    );
+    const heal = applyProtocolChunk("|-heal|p1a: Ferrothorn|56/100|[from] item: Leftovers", state);
+    const healEntry = heal.log.find((l) => l.kind === "damage");
+    expect(healEntry).toMatchObject({ kind: "damage", isHeal: true, sourceLabel: "Leftovers" });
+
+    const dmg = applyProtocolChunk("|-damage|p1a: Ferrothorn|44/100|[from] Recoil", heal.state);
+    const dmgEntry = dmg.log.find((l) => l.kind === "damage");
+    expect(dmgEntry).toMatchObject({ kind: "damage", isHeal: false, sourceLabel: "Recoil" });
+  });
+
+  it("gives crit and supereffective their own log entries, not raw flavor text", () => {
+    const { log } = applyProtocolChunk(
+      ["|-crit|p2a: Blastoise", "|-supereffective|p2a: Blastoise", "|-damage|p2a: Blastoise|100/362"].join("\n"),
+      freshState()
+    );
+    expect(log.some((l) => l.kind === "crit" && l.target === "p2")).toBe(true);
+    expect(log.some((l) => l.kind === "supereffective" && l.target === "p2")).toBe(true);
+  });
+
+  it("handles sethp, curestatus, formechange and transform", () => {
+    let { state } = applyProtocolChunk(
+      ["|teamsize|p1|1", "|switch|p1a: Ditto|Ditto, N|100/100", "|-status|p1a: Ditto|brn"].join("\n"),
+      freshState()
+    );
+    expect(state.snapshot.p1.active?.status).toBe("brn");
+
+    let result = applyProtocolChunk("|-curestatus|p1a: Ditto|brn", state);
+    state = result.state;
+    expect(state.snapshot.p1.active?.status).toBeUndefined();
+    expect(result.log.some((l) => l.kind === "curestatus" && l.target === "p1")).toBe(true);
+
+    result = applyProtocolChunk("|-sethp|p1a: Ditto|50/100", state);
+    state = result.state;
+    expect(state.snapshot.p1.active?.hpPercent).toBe(50);
+
+    result = applyProtocolChunk("|-transform|p1a: Ditto|Charizard", state);
+    state = result.state;
+    expect(state.snapshot.p1.active?.species).toBe("Charizard");
+    expect(result.log.some((l) => l.kind === "transform" && l.species === "Charizard")).toBe(true);
+
+    result = applyProtocolChunk("|-formechange|p1a: Ditto|Charizard-Mega-X, L100|50/100", state);
+    expect(result.state.snapshot.p1.active?.species).toBe("Charizard-Mega-X");
+    expect(result.log.some((l) => l.kind === "formechange" && l.species === "Charizard-Mega-X")).toBe(true);
+  });
+
   it("applies damage, resists/super-effective are ignored, and rounds hp percent", () => {
     let { state } = applyProtocolChunk(
       ["|teamsize|p1|1", "|teamsize|p2|1", "|switch|p1a: Charizard|Charizard, F|297/297", "|switch|p2a: Blastoise|Blastoise, M|362/362"].join(
@@ -49,7 +107,7 @@ describe("protocolParser", () => {
     // flavor text (the parser's designed fallback), not silently dropped.
     expect(log).toEqual([
       { kind: "text", text: "|-resisted|p2a: Blastoise" },
-      { kind: "damage", target: "p2", hpPercent: 81 },
+      { kind: "damage", target: "p2", hpPercent: 81, isHeal: false, sourceLabel: undefined },
     ]);
   });
 

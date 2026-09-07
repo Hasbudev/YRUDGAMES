@@ -118,6 +118,19 @@ export class FinalBattleRunner {
     this.parserState = state;
     if (this.stream.battle) {
       const battle = this.stream.battle;
+      // The protocol's |move| line only ever carries the move's name — a
+      // type-colored VFX on the client needs the type too, which only the
+      // Dex (available here, not in the plain-text protocolParser) knows.
+      for (const entry of log) {
+        if (entry.kind === "move") {
+          try {
+            entry.moveType = battle.dex.moves.get(entry.move).type;
+          } catch {
+            // Unknown/malformed move name — leave moveType undefined, the
+            // client just skips the type-colored VFX for this one hit.
+          }
+        }
+      }
       const rosters = readTeamRosters(battle);
       const snap = this.parserState.snapshot;
       this.parserState = {

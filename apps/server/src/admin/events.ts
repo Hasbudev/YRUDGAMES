@@ -114,7 +114,6 @@ eventsRouter.get("/question-banks", requireAdminCode, async (_req, res) => {
 const createEventSchema = z.object({
   name: z.string().min(1).max(80),
   questionBankId: z.string().min(1),
-  livesPerPlayer: z.number().int().min(1).max(10).default(3),
 });
 
 eventsRouter.post("/events", requireAdminCode, async (req, res) => {
@@ -136,7 +135,6 @@ eventsRouter.post("/events", requireAdminCode, async (req, res) => {
       code,
       name: parsed.data.name,
       questionBankId: parsed.data.questionBankId,
-      livesPerPlayer: parsed.data.livesPerPlayer,
     },
   });
 

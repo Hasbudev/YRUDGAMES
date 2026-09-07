@@ -47,7 +47,7 @@ export function EndGameSummary({ summary, myPlayerId }: EndGameSummaryProps) {
             avatarSeed: entry.playerId,
             clan: entry.clan,
             rank: entry.placement,
-            statLabel: `${entry.correctAnswers} bonne(s) réponse(s)`,
+            statLabel: `${entry.points} pt${entry.points === 1 ? "" : "s"}`,
             highlight: entry.playerId === myPlayerId,
           }))}
         />
@@ -67,7 +67,7 @@ export function EndGameSummary({ summary, myPlayerId }: EndGameSummaryProps) {
                 <ClanBadge clanId={entry.clan} seed={entry.playerId} size={22} />
                 {entry.name}
               </span>
-              <span className="text-xs">{entry.correctAnswers} bonne(s) réponse(s)</span>
+              <span className="text-xs">{entry.points} pt{entry.points === 1 ? "" : "s"}</span>
             </li>
           ))}
         </ol>

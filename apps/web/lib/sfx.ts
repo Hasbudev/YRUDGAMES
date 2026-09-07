@@ -61,6 +61,12 @@ export function playPrankSting() {
   tone(900, 0.1, "square", 0.14, 0.06);
 }
 
+export function playCrit() {
+  tone(1200, 0.06, "square", 0.16, 0);
+  tone(1600, 0.08, "square", 0.16, 0.05);
+  tone(900, 0.2, "sawtooth", 0.14, 0.1);
+}
+
 export function playDuelHit() {
   tone(700, 0.1, "sine", 0.16, 0);
   tone(1000, 0.08, "sine", 0.12, 0.05);

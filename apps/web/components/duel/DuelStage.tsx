@@ -7,17 +7,49 @@ import type { DuelActor, DuelRoll } from "@yrud/shared";
 import { playDuelHit, playDuelMiss, playDuelWin } from "@/lib/sfx";
 import { SpriteFlipbook } from "@/components/vfx/SpriteFlipbook";
 
-// Yrud is a known Medicham enjoyer; the challenger fields an Arboliva. The
-// accuracy values are tuned for this mini-game's pacing, not the real move
-// data (both are 90% in the actual games) — they're shown on the Précision
-// badges since they're what actually governs the fight, not the real stats.
+// Yrud is a known Medicham enjoyer. The challenger's own species reflects
+// their clan: Rapepolofia always fields Arboliva, Paldea gets one of a
+// handful of Paldea-dex Pokémon (picked deterministically per player, so
+// the same challenger always shows up as the same mon rather than
+// re-rolling every duel). A challenger from Yrud's own clan fields
+// Doublade — Yrud arming his own sbires, even against himself. Any other/
+// unknown clan falls back to Arboliva.
+const OPPONENT_SPECIES_RAPEPOLOFIA = "arboliva";
+const OPPONENT_SPECIES_YRUD = "doublade";
+const PALDEA_SPECIES_POOL = [
+  "skeledirge",
+  "meowscarada",
+  "quaquaval",
+  "garganacl",
+  "ceruledge",
+  "armarouge",
+  "dondozo",
+  "tinkaton",
+  "glimmora",
+  "houndstone",
+];
+
+function hashToIndex(seed: string, length: number): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return h % length;
+}
+
+function opponentSpeciesFor(opponentId: string, opponentClan?: string | null): string {
+  if (opponentClan === "paldea") return PALDEA_SPECIES_POOL[hashToIndex(opponentId, PALDEA_SPECIES_POOL.length)];
+  if (opponentClan === "yrud") return OPPONENT_SPECIES_YRUD;
+  return OPPONENT_SPECIES_RAPEPOLOFIA;
+}
+
+// The accuracy values are tuned for this mini-game's pacing, not the real
+// move data (both are 90% in the actual games) — they're shown on the
+// Précision badges since they're what actually governs the fight, not the
+// real stats.
 const YRUD_SPECIES = "medicham";
-const OPPONENT_SPECIES = "arboliva";
 const YRUD_MOVE = "Zen Headbutt";
 const OPPONENT_MOVE = "Leaf Storm";
 const YRUD_ACCURACY = 80;
 const OPPONENT_ACCURACY = 70;
-const MISSES_TO_LOSE = 3;
 
 // Same tint applied to both the Water-swirl and Fire-swirl art so they read
 // as Psychic (pink/violet) and Grass (green) instead — the sheet only ships
@@ -35,36 +67,15 @@ function spriteUrl(species: string) {
 
 interface DuelStageProps {
   opponentName: string;
+  opponentId: string;
+  opponentClan?: string | null;
   rollLog: DuelRoll[];
   winner?: DuelActor;
   onDone: () => void;
 }
 
-function missesOf(rollLog: DuelRoll[], actor: DuelActor) {
-  return rollLog.filter((r) => r.actor === actor && !r.hit).length;
-}
-
-function MissBar({ misses, tone }: { misses: number; tone: "blue" | "red" }) {
-  const remaining = Math.max(0, MISSES_TO_LOSE - misses);
-  return (
-    <div className="flex w-full gap-1.5">
-      {Array.from({ length: MISSES_TO_LOSE }, (_, i) => (
-        <div
-          key={i}
-          className={`h-3 flex-1 rounded-full border transition-all duration-300 ${
-            i < remaining
-              ? tone === "blue"
-                ? "border-sky-300/60 bg-gradient-to-r from-sky-400 to-blue-500 shadow-[0_0_8px_rgba(79,143,224,0.7)]"
-                : "border-amber-300/60 bg-gradient-to-r from-amber-400 to-crimson-bright shadow-[0_0_8px_rgba(217,88,74,0.7)]"
-              : "border-white/10 bg-white/5"
-          }`}
-        />
-      ))}
-    </div>
-  );
-}
-
-export function DuelStage({ opponentName, rollLog, winner, onDone }: DuelStageProps) {
+export function DuelStage({ opponentName, opponentId, opponentClan, rollLog, winner, onDone }: DuelStageProps) {
+  const opponentSpecies = opponentSpeciesFor(opponentId, opponentClan);
   const stageRef = useRef<HTMLDivElement>(null);
   const framesRowRef = useRef<HTMLDivElement>(null);
   const labelsRowRef = useRef<HTMLDivElement>(null);
@@ -247,9 +258,6 @@ export function DuelStage({ opponentName, rollLog, winner, onDone }: DuelStagePr
     return () => clearTimeout(timeout);
   }, [winner, onDone]);
 
-  const yrudMisses = missesOf(rollLog, "yrud");
-  const opponentMisses = missesOf(rollLog, "opponent");
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 overflow-y-auto overflow-x-hidden bg-void-deep px-4 py-6">
       {/* Charged arena backdrop — crimson/purple radial glow + rim pillars */}
@@ -344,7 +352,7 @@ export function DuelStage({ opponentName, rollLog, winner, onDone }: DuelStagePr
             <Image src="/defi/frame-red.png" alt="" fill sizes="320px" className="relative object-contain" />
             <div className="absolute overflow-hidden rounded-full" style={{ left: "13%", right: "13%", top: "17%", bottom: "14%" }}>
               <Image
-                src={spriteUrl(OPPONENT_SPECIES)}
+                src={spriteUrl(opponentSpecies)}
                 alt={opponentName}
                 fill
                 unoptimized
@@ -382,7 +390,6 @@ export function DuelStage({ opponentName, rollLog, winner, onDone }: DuelStagePr
                 Yrud
               </span>
             </div>
-            <MissBar misses={yrudMisses} tone="blue" />
             <span className="font-display text-sm font-semibold text-gold-dim sm:text-base">{YRUD_MOVE}</span>
             <div className="relative w-32 sm:w-40">
               <Image src="/defi/precision-blue.png" alt="" width={190} height={116} className="h-auto w-full" />
@@ -406,7 +413,6 @@ export function DuelStage({ opponentName, rollLog, winner, onDone }: DuelStagePr
                 <span className="max-w-full truncate">{opponentName}</span>
               </span>
             </div>
-            <MissBar misses={opponentMisses} tone="red" />
             <span className="font-display text-sm font-semibold text-crimson-bright sm:text-base">{OPPONENT_MOVE}</span>
             <div className="relative w-32 sm:w-40">
               <Image src="/defi/precision-red.png" alt="" width={199} height={114} className="h-auto w-full" />
@@ -443,7 +449,7 @@ export function DuelStage({ opponentName, rollLog, winner, onDone }: DuelStagePr
           <p
             className={`max-w-sm text-center font-display text-xl font-black sm:text-2xl ${winner === "yrud" ? "text-sky-400" : "text-amber-500"}`}
           >
-            {winner === "yrud" ? "Yrud gagne ! Une vie est perdue..." : `${opponentName} esquive la fureur de Yrud !`}
+            {winner === "yrud" ? "Yrud gagne ! Des points sont perdus..." : `${opponentName} gagne des points et échappe à la fureur de Yrud !`}
           </p>
           <Image
             src={winner === "yrud" ? "/defi/vie-perdue-pill.png" : "/defi/vie-gagnee-pill.png"}

@@ -29,61 +29,36 @@ describe("duel engine", () => {
     expect(state.rollLog[1]).toMatchObject({ actor: "opponent", move: "Leaf Storm", accuracy: 0.7, hit: true });
   });
 
-  it("a single miss does not end the duel", () => {
+  it("a hit does not end the duel", () => {
     let state = startDuel("p1");
-    state = advanceDuel(state, () => 0.9); // Yrud misses (accuracy 0.8, roll 0.9)
+    state = advanceDuel(state, () => 0); // Yrud hits (accuracy 0.8, roll 0)
     expect(state.phase).toBe("rolling");
-    expect(missCount(state.rollLog, "yrud")).toBe(1);
   });
 
-  it("ends the duel in favor of the opponent once Yrud reaches 3 misses", () => {
+  it("sudden death: Yrud's first miss ends the duel in the opponent's favor", () => {
     let state = startDuel("p1");
-    const yrudMiss = () => 0.9; // > 0.8 accuracy => miss
-    const opponentHit = () => 0; // < 0.7 accuracy => hit
-    state = advanceDuel(state, yrudMiss); // yrud miss 1
-    state = advanceDuel(state, opponentHit);
-    state = advanceDuel(state, yrudMiss); // yrud miss 2
-    state = advanceDuel(state, opponentHit);
-    state = advanceDuel(state, yrudMiss); // yrud miss 3 — resolved
+    state = advanceDuel(state, () => 0.9); // > 0.8 accuracy => miss
     expect(state.phase).toBe("resolved");
     if (state.phase !== "resolved") throw new Error("unreachable");
     expect(state.winner).toBe("opponent");
-    expect(missCount(state.rollLog, "yrud")).toBe(3);
+    expect(missCount(state.rollLog, "yrud")).toBe(1);
   });
 
-  it("ends the duel in favor of Yrud once the opponent reaches 3 misses", () => {
+  it("sudden death: the opponent's first miss ends the duel in Yrud's favor", () => {
     let state = startDuel("p1");
     const yrudHit = () => 0; // < 0.8 accuracy => hit
     const opponentMiss = () => 0.9; // > 0.7 accuracy => miss
     state = advanceDuel(state, yrudHit);
-    state = advanceDuel(state, opponentMiss); // opponent miss 1
-    state = advanceDuel(state, yrudHit);
-    state = advanceDuel(state, opponentMiss); // opponent miss 2
-    state = advanceDuel(state, yrudHit);
-    state = advanceDuel(state, opponentMiss); // opponent miss 3 — resolved
+    state = advanceDuel(state, opponentMiss);
     expect(state.phase).toBe("resolved");
     if (state.phase !== "resolved") throw new Error("unreachable");
     expect(state.winner).toBe("yrud");
-    expect(missCount(state.rollLog, "opponent")).toBe(3);
-  });
-
-  it("a miss that isn't the third does not resolve the duel", () => {
-    let state = startDuel("p1");
-    state = advanceDuel(state, () => 0.9); // yrud miss 1
-    state = advanceDuel(state, () => 0); // opponent hit
-    state = advanceDuel(state, () => 0.9); // yrud miss 2
-    expect(state.phase).toBe("rolling");
+    expect(missCount(state.rollLog, "opponent")).toBe(1);
   });
 
   it("does nothing once resolved", () => {
     let state = startDuel("p1");
-    const yrudMiss = () => 0.9;
-    const opponentHit = () => 0;
-    state = advanceDuel(state, yrudMiss); // yrud miss 1
-    state = advanceDuel(state, opponentHit);
-    state = advanceDuel(state, yrudMiss); // yrud miss 2
-    state = advanceDuel(state, opponentHit);
-    state = advanceDuel(state, yrudMiss); // yrud miss 3 — resolved
+    state = advanceDuel(state, () => 0.9); // yrud miss — resolved
     const resolved = state;
     state = advanceDuel(state, () => 0);
     expect(state).toEqual(resolved);

@@ -36,6 +36,21 @@ export interface BattleTeamMember {
   isActive: boolean;
 }
 
+export type StatKey = "hp" | "atk" | "def" | "spa" | "spd" | "spe";
+
+// A finalist's own team sheet — item/ability/nature/EVs/IVs per Pokémon, in
+// team order (matches BattleTeamMember's order). Sent privately to that
+// player's own socket only; never part of the shared BattleSnapshot that
+// both finalists/spectators receive, since it would leak the opponent's set.
+export interface TeamSheetMember {
+  species: string;
+  item?: string;
+  ability?: string;
+  nature?: string;
+  evs: Record<StatKey, number>;
+  ivs: Record<StatKey, number>;
+}
+
 export interface BattleSideSnapshot {
   playerId: string;
   name: string;
@@ -71,8 +86,23 @@ export interface BattleSnapshot {
 }
 
 export type BattleLogEntry =
-  | { kind: "move"; actor: string; move: string; target?: string }
-  | { kind: "damage"; target: string; hpPercent: number }
+  | { kind: "move"; actor: string; move: string; target?: string; moveType?: string }
+  | {
+      kind: "damage";
+      target: string;
+      hpPercent: number;
+      // True for a `|-heal|` line — same visual beat (HP bar moves), but
+      // the direction and log wording differ.
+      isHeal?: boolean;
+      // The revealed item/ability/effect behind a passive tick — e.g.
+      // "Leftovers", "Rocky Helmet", "Poison" — from the protocol's
+      // `[from] item: X` / `[from] ability: X` tag. This is exactly how a
+      // held item or ability actually gets revealed to spectators, so it's
+      // worth surfacing in the log rather than showing an anonymous heal.
+      sourceLabel?: string;
+    }
+  | { kind: "crit"; target: string }
+  | { kind: "supereffective"; target: string }
   | { kind: "faint"; target: string }
   | { kind: "status"; target: string; status: BattleStatus }
   | { kind: "boost"; target: string; stat: BoostStat; amount: number }
@@ -91,6 +121,9 @@ export type BattleLogEntry =
   | { kind: "volatileend"; target: string; effect: string }
   | { kind: "terastallize"; target: string; teraType: string }
   | { kind: "cant"; target: string; reason: string }
+  | { kind: "curestatus"; target: string }
+  | { kind: "formechange"; target: string; species: string }
+  | { kind: "transform"; target: string; species: string }
   | { kind: "text"; text: string };
 
 // Registry of Yrud's final-battle interference moves — same pattern as
