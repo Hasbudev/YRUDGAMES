@@ -7,6 +7,10 @@
 //   npm run yrud2 --workspace=apps/server -- --create "Yrud Games 2" --apply
 //     → creates a brand-new bank holding only the Yrud Games 2 manches (the
 //       safest option: an old bank and its past events stay untouched)
+//   npm run yrud2 --workspace=apps/server -- --ensure "Yrud Games 2" --apply
+//     → same, but does nothing if a bank with that name already exists. The
+//       server's Docker image runs this on every boot, so a fresh deploy
+//       sets the content up by itself.
 //
 // Needs DATABASE_URL (point it at production to change the real bank — a dry
 // run is the default so nothing is written by accident). Flags:
@@ -55,6 +59,16 @@ function metadataOf(q: NewQuestion) {
 }
 
 async function main() {
+  const ensureName = option("ensure");
+  if (ensureName) {
+    const existing = await prisma.questionBank.findFirst({ where: { name: ensureName } });
+    if (existing) {
+      console.log(`Banque "${ensureName}" déjà présente (${existing.id}) — rien à faire.`);
+      return;
+    }
+    args.push("--create", ensureName);
+  }
+
   const createName = option("create");
   if (createName) {
     const total = YRUD_GAMES_2_ROUNDS.reduce((n, r) => n + r.questions.length, 0);

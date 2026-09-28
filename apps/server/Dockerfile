@@ -32,5 +32,7 @@ WORKDIR /app/apps/server
 EXPOSE 4000
 # Apply any pending migrations before starting — safe to run every boot
 # (no-op if the DB is already up to date), and means a deploy can never
-# start the server against a schema the new code doesn't match.
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/index.js"]
+# start the server against a schema the new code doesn't match. Then make
+# sure the "Yrud Games 2" question bank exists (created once, never touched
+# again); a failure there must not keep the server from starting.
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=prisma/schema.prisma && (npx tsx prisma/replaceRounds.ts --ensure 'Yrud Games 2' --apply || echo 'yrud2 bank setup failed'); node dist/index.js"]
