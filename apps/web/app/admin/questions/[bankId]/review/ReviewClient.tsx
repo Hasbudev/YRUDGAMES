@@ -286,6 +286,11 @@ export function ReviewClient({ bankId }: { bankId: string }) {
                         <span className="rounded-full border border-border bg-void-deep/60 px-2 py-0.5">
                           +{current.points} pt{current.points === 1 ? "" : "s"}
                         </span>
+                        {current.theme !== "ost" && (
+                          <span className="rounded-full border border-border bg-void-deep/60 px-2 py-0.5">
+                            ⏱ {current.timeLimitSec ?? 20} s
+                          </span>
+                        )}
                         {current.wrongPoints !== 0 && (
                           <span className="rounded-full border border-crimson/40 bg-crimson/10 px-2 py-0.5 text-crimson-bright">
                             {current.wrongPoints} si faux

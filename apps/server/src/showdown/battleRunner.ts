@@ -212,6 +212,14 @@ export class FinalBattleRunner {
       playerId === this.player1Id ? this.player2Id : playerId === this.player2Id ? this.player1Id : null;
     if (!winnerId) return { error: "Tu ne participes pas à cette bataille." };
     this.ended = true;
+    // The sim never emits |win| for a forfeit, so the snapshot has to carry
+    // the winner itself — the arena's win banner, a reconnect's
+    // lastBattleSnapshot and the final summary's champion all read it there.
+    const winnerName = winnerId === this.player1Id ? this.parserState.snapshot.p1.name : this.parserState.snapshot.p2.name;
+    const log: BattleLogEntry[] = [{ kind: "win", winnerName }];
+    this.parserState = { ...this.parserState, snapshot: { ...this.parserState.snapshot, winnerId, ended: true } };
+    this.fullLog.push(...log);
+    this.callbacks.onUpdate(this.parserState.snapshot, log);
     this.callbacks.onEnd(winnerId);
     return { ok: true };
   }

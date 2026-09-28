@@ -40,7 +40,7 @@ async function loadRoom(io: IoServer, code: string): Promise<EventRoom | null> {
     comboThreshold: q.comboThreshold ?? undefined,
     comboBonus: q.comboBonus ?? undefined,
     allCorrect: q.allCorrect,
-    timeLimitMs: DEFAULT_TIME_LIMIT_MS,
+    timeLimitMs: q.timeLimitSec ? q.timeLimitSec * 1000 : DEFAULT_TIME_LIMIT_MS,
   }));
 
   // Blind-test (ost-themed) questions live in the same bank-ordered sequence

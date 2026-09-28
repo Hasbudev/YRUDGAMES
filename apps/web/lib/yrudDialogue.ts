@@ -10,6 +10,7 @@ export const INTRO_LINES = [
   "Et, pour ceux qui suivraient pas... centuple lauréat du concours Mister Rapepolofia.",
   "Ce soir, dans mon arène, vous allez souffrir pour mon divertissement personnel.",
   "Des quiz, des bagarres, des taunts humiliants en direct... le programme complet.",
+  "Première épreuve : le Quizz mécaniques. Chaque clan choisira sa catégorie, en commençant par le plus minable.",
   "Inclinez-vous, ou tremblez. Les deux me conviennent très bien.",
   "Que les Yrud Games... commencent.",
 ];
@@ -20,23 +21,28 @@ export const INTRO_LINES = [
 const ROUND_INTRO_LINES: Record<number, string[]> = {
   2: [
     "Vous respirez encore ? Impressionnant.",
-    "Manche 2 : Géographe Pokémon. Si vous ne savez même pas où vous habitez, ça va être compliqué.",
-    "Que la seconde humiliation commence.",
+    "Manche 2 : Jusqu'où peut monter un Pokémon dans une stat précise. Un curseur défile, arrêtez-le pile sur la bonne valeur.",
+    "Pile, j'ai dit. Et ne comptez pas sur moi pour vous faciliter la tâche.",
   ],
   3: [
     "Bien. La marge d'erreur s'est réduite. L'espoir aussi.",
-    "Manche 3 : L'Expert Strat. Ici, on sépare les vrais dresseurs des touristes.",
-    "Amusez-moi.",
+    "Manche 3 : Vrai ou Faux. Et pour pimenter, une bombe. Répondez juste pour la refiler à un autre clan.",
+    "Quand elle explose, tout le clan qui la tient perd 20 points. Trois bombes. Amusez-moi.",
   ],
   4: [
-    "Un peu de musique, pour ceux qui commencent à s'ennuyer. Moi le premier.",
-    "Manche 4 : Blind Test Musical. Si vous ne reconnaissez pas ces thèmes, avez-vous seulement une âme ?",
-    "Ouvrez vos oreilles. C'est le seul organe qui vous servira ici.",
+    "Vous avez parcouru toutes ces routes, paraît-il. Prouvez-le.",
+    "Manche 4 : Le Navidex. Un Pokémon a disparu de chaque route. Écrivez son nom, en français ou en anglais.",
+    "Le meilleur de la manche volera 5 points à qui il veut. Oui, j'encourage la trahison.",
   ],
   5: [
-    "Assez perdu de temps avec la culture générale. Parlons de moi.",
-    "Manche 5 : Le Quiz d'Yrud. Cette manche, c'est mon autobiographie sous forme de questions.",
-    "Priez pour vous en souvenir.",
+    "Un peu de musique, pour ceux qui commencent à s'ennuyer. Moi le premier.",
+    "Manche 5 : Blind Test Musical. Si vous ne reconnaissez pas ces thèmes, avez-vous seulement une âme ?",
+    "Ouvrez vos oreilles. C'est le seul organe qui vous servira ici.",
+  ],
+  6: [
+    "Assez réfléchi. Voyons si vos doigts sont moins lents que vos cerveaux.",
+    "Manche 6 : La Chasse-Taupes. Tapez mes Taupiqueur. Remysse rapporte gros, Tchoupi vous coûtera cher.",
+    "Rudy vous donnera un coup de pouce. Artymasion vous donnera son avis. Personne ne le lui a demandé.",
   ],
 };
 

@@ -2,6 +2,8 @@ import type { Server } from "socket.io";
 import type {
   ArenaSnapshot,
   BattleChoiceRequest,
+  CategoryDraft,
+  StealState,
   ClientToServerEvents,
   EventSummary,
   InterferenceType,
@@ -9,19 +11,30 @@ import type {
   PublicPlayer,
   PublicQuestion,
   RevealResult,
+  RoundRules,
   ServerToClientEvents,
   SocketData,
   TeamSheetMember,
 } from "@yrud/shared";
 import {
+  SLIDER_TRICKS,
+  type SliderTrick,
+  CLAN_REGISTRY,
   INTERFERENCE_REGISTRY,
   TAUNT_DISPLAY_MS,
+  WHACK_HIT_GRACE_MS,
+  whackSchedule,
+  whackScore,
+  type Mole,
+  type WhackHit,
   getPrankDefinition,
   pickPrankText,
   resolveClan,
 } from "@yrud/shared";
 import { prisma } from "../db/client";
 import * as engine from "../game/engine";
+import { summarizeRound } from "../game/rules";
+import { matchesFreeText } from "../game/freeText";
 import type { GameState, InternalQuestion } from "../game/types";
 import * as duelEngine from "../duel/engine";
 import type { DuelState } from "../duel/engine";
@@ -36,8 +49,14 @@ type IoServer = Server<
   SocketData
 >;
 
-export const DEFAULT_TIME_LIMIT_MS = 10_000;
+// Used for any question that doesn't carry its own duration.
+export const DEFAULT_TIME_LIMIT_MS = 20_000;
+const MIN_TIME_LIMIT_SEC = 5;
+const MAX_TIME_LIMIT_SEC = 300;
 const DUEL_ROLL_DELAY_MS = 1200;
+// Chasse-taupes: the clock runs this much past the last mole so the final
+// hits still reach the server before the auto-reveal.
+const WHACK_END_GRACE_MS = 1500;
 // Meaningful swing for a Yrud face-off, without a config screen — winning
 // nets this many points, losing costs this many (never below 0).
 const DUEL_POINTS = 3;
@@ -50,6 +69,13 @@ export class EventRoom {
   private state: GameState;
   private lastReveal?: RevealResult;
   private autoRevealTimer: NodeJS.Timeout | null = null;
+  // Admin-set duration per manche (roundIndex -> ms), beating each
+  // question's own value. Lives in memory like the rest of the room state.
+  private roundTimeLimitMs = new Map<number, number>();
+  // The duration the currently-live question actually started with, frozen
+  // at that moment — a later override must not retroactively change a clock
+  // that is already ticking (clients derive their countdown from it).
+  private liveTimeLimitMs: number | null = null;
   private duelState: DuelState | null = null;
   private clanByPlayer: Record<string, string> = {};
   private battleRunner: FinalBattleRunner | null = null;
@@ -73,6 +99,22 @@ export class EventRoom {
   // new one starts (see start()/next()'s roundIntro branch) so a player who
   // saw Manche 2's intro doesn't get incorrectly credited for Manche 3's.
   private introSeenBy: Set<string> = new Set();
+  // The live chasse-taupes game, if the current question is one — its board
+  // (seed picked at launch) and every player's accepted hits, in order.
+  private whackGame: { questionId: string; seed: number; schedule: Mole[]; hits: Record<string, WhackHit[]> } | null =
+    null;
+  // Manche 1 — which clan got which category, and the live vote.
+  private categoryDraft: CategoryDraft | null = null;
+  private draftVotes: Record<string, string> = {};
+  // Manche 3 — the hot-potato bomb: its holder, how many questions each
+  // bomb's fuse lasts (secret), and how far the current one has burned.
+  private bomb: { roundIndex: number; holderId: string | null; number: number; fuses: number[]; held: number; penalty: number } | null =
+    null;
+  private bombRoundsDone = new Set<number>();
+  // Points each player gained in the manche being played — for manche 4's
+  // "the winner steals" and nothing else.
+  private roundGains: { roundIndex: number; byPlayer: Record<string, number> } | null = null;
+  private steal: StealState | null = null;
 
   constructor(io: IoServer, eventId: string, code: string, questions: InternalQuestion[]) {
     this.io = io;
@@ -92,6 +134,27 @@ export class EventRoom {
     };
   }
 
+  private timeLimitFor(q: InternalQuestion): number {
+    // A chasse-taupes lasts as long as its board, whatever the manche's timer.
+    if (q.theme === "whack" && q.metadata?.whack) return q.metadata.whack.durationMs + WHACK_END_GRACE_MS;
+    return this.roundTimeLimitMs.get(q.roundIndex) ?? q.timeLimitMs;
+  }
+
+  // The manche the game is in — or about to start (lobby/intro have no
+  // question yet, so that's the first one; roundIntro's questionIndex has
+  // already moved onto the upcoming manche's first question).
+  private roundRules(): RoundRules | undefined {
+    if (this.state.phase === "finished") return undefined;
+    const q = this.state.questions[Math.max(0, this.state.questionIndex)];
+    if (!q) return undefined;
+    return summarizeRound(
+      this.state.questions,
+      q.roundIndex,
+      (question) => this.timeLimitFor(question),
+      this.roundTimeLimitMs.has(q.roundIndex)
+    );
+  }
+
   private publicQuestion(): PublicQuestion | undefined {
     const q = engine.currentQuestion(this.state);
     // Also kept through "reveal" — clients need the prompt/choices on screen
@@ -105,15 +168,23 @@ export class EventRoom {
       (this.state.phase !== "question" && this.state.phase !== "reveal" && this.state.phase !== "roundIntro")
     )
       return undefined;
+    // A free-text question's choices hold its answer (shown at reveal), and
+    // its accepted answers must never reach a client at all.
+    const { acceptedAnswers, ...metadata } = q.metadata ?? {};
+    const freeText = !!acceptedAnswers?.length;
+    if (metadata.whack && this.whackGame?.questionId === q.id) {
+      metadata.whack = { ...metadata.whack, seed: this.whackGame.seed };
+    }
     return {
       id: q.id,
       theme: q.theme,
       prompt: q.prompt,
-      choices: q.choices,
-      metadata: q.metadata,
+      choices: freeText && this.state.phase !== "reveal" ? [] : q.choices,
+      metadata: q.metadata ? { ...metadata, ...(freeText ? { freeText: true } : {}) } : undefined,
       mediaUrl: q.mediaUrl,
-      timeLimitMs: q.timeLimitMs,
+      timeLimitMs: this.state.phase === "roundIntro" ? this.timeLimitFor(q) : (this.liveTimeLimitMs ?? this.timeLimitFor(q)),
       startedAt: this.state.questionStartedAt ?? Date.now(),
+      serverNow: Date.now(),
       questionIndex: this.state.questionIndex,
       questionCount: this.state.questions.length,
       points: q.points,
@@ -142,7 +213,19 @@ export class EventRoom {
         this.duelState && this.duelState.phase === "rolling"
           ? { opponentId: this.duelState.opponentId, rollLog: this.duelState.rollLog }
           : undefined,
+      roundRules: this.roundRules(),
       trapActive: this.state.trapActive,
+      categoryDraft: this.categoryDraft ?? undefined,
+      bomb: this.bomb
+        ? {
+            holderId: this.bomb.holderId,
+            bombNumber: this.bomb.number,
+            totalBombs: this.bomb.fuses.length,
+            heat: Math.min(1, this.bomb.held / this.bomb.fuses[this.bomb.number - 1]),
+            penalty: this.bomb.penalty,
+          }
+        : undefined,
+      steal: this.steal ?? undefined,
     };
   }
 
@@ -201,7 +284,7 @@ export class EventRoom {
       if (question) {
         const newStartedAt = this.state.questionStartedAt + extraMs;
         this.state = { ...this.state, questionStartedAt: newStartedAt };
-        const remaining = newStartedAt + question.timeLimitMs - Date.now();
+        const remaining = newStartedAt + (this.liveTimeLimitMs ?? question.timeLimitMs) - Date.now();
         this.clearAutoReveal();
         if (remaining > 0) this.scheduleAutoReveal(remaining);
       }
@@ -238,12 +321,42 @@ export class EventRoom {
     const question = engine.currentQuestion(this.state);
     if (!question || question.id !== questionId) return;
     if (playerId in this.state.answers) return; // already answered — nothing changes
+    const slider = question.theme === "slider" ? question.metadata?.slider : undefined;
+    if (slider && (!Number.isInteger(choiceIndex) || choiceIndex < slider.low || choiceIndex > slider.high)) return;
 
     this.state = engine.submitAnswer(this.state, playerId, choiceIndex);
     if (playerId in this.state.answers) {
       // Broadcast live "who's answered" progress — never what they chose.
       this.broadcastSnapshot();
     }
+  }
+
+  // One tap on a chasse-taupes mole. Only kept if that mole is really up on
+  // the board right now (with some slack for latency) and this player hasn't
+  // already tapped it — the score is rebuilt from these at reveal, so a
+  // client can't just claim points.
+  whack(playerId: string, questionId: string, moleId: number) {
+    const game = this.whackGame;
+    if (!game || game.questionId !== questionId || this.state.phase !== "question") return;
+    if (!this.state.players[playerId] || this.state.questionStartedAt === null) return;
+    const mole = game.schedule[moleId];
+    if (!mole) return;
+    const atMs = Date.now() - this.state.questionStartedAt;
+    if (atMs < mole.appearAt - 250 || atMs > mole.hideAt + WHACK_HIT_GRACE_MS) return;
+    const hits = (game.hits[playerId] ??= []);
+    if (hits.some((h) => h.moleId === moleId)) return;
+    hits.push({ moleId, atMs });
+  }
+
+  // A typed answer to a free-text question becomes a normal pick — the
+  // correct index if it matches an accepted answer, an out-of-range index
+  // (a wrong pick) otherwise — so scoring, traps and reveal need no special case.
+  submitTextAnswer(playerId: string, questionId: string, text: string) {
+    const question = engine.currentQuestion(this.state);
+    const accepted = question?.metadata?.acceptedAnswers;
+    if (!question || question.id !== questionId || !accepted?.length) return;
+    if (!text.trim()) return;
+    this.submitAnswer(playerId, questionId, matchesFreeText(text, accepted) ? question.correctIndex : -1);
   }
 
   // Lobby -> intro. Yrud's cold-open plays here — deliberately no question
@@ -278,6 +391,10 @@ export class EventRoom {
   // whole point: the client-driven dialogue can take as long as it wants
   // without silently burning down a clock nobody can see yet.
   async beginQuiz(): Promise<{ ok: true } | { error: string }> {
+    const upcoming = this.state.questions[Math.max(0, this.state.questionIndex)];
+    if (upcoming?.metadata?.category && !this.draftComplete()) {
+      return { error: "Fais d'abord choisir leur catégorie aux clans (panneau « Choix des catégories »)." };
+    }
     if (this.state.phase === "intro") {
       this.state = engine.startGame(this.state, Date.now());
     } else if (this.state.phase === "roundIntro") {
@@ -286,16 +403,44 @@ export class EventRoom {
       return { error: "Rien à confirmer pour l'instant." };
     }
 
-    const question = this.publicQuestion();
-    if (question) {
-      this.io.to(this.socketRoom).emit("question:new", question);
-      // A blind-test (ost) question has no hard deadline — Yrud reveals it
-      // manually once the clip has played long enough, unlike every other
-      // theme's auto-reveal-on-timeout.
-      if (question.theme !== "ost") this.scheduleAutoReveal(question.timeLimitMs);
-    }
+    this.launchQuestion();
     this.broadcastSnapshot();
     return { ok: true };
+  }
+
+  // Puts the just-started question on the wire and arms its clock. The
+  // duration is frozen here (see liveTimeLimitMs) so it stays consistent
+  // between what clients count down and when the server auto-reveals.
+  private launchQuestion() {
+    const current = engine.currentQuestion(this.state);
+    if (!current) return;
+    this.whackGame =
+      current.theme === "whack" && current.metadata?.whack
+        ? (() => {
+            const seed = Math.floor(Math.random() * 2 ** 31);
+            return { questionId: current.id, seed, schedule: whackSchedule(seed, current.metadata.whack.durationMs), hits: {} };
+          })()
+        : null;
+    const bombRule = current.metadata?.bomb;
+    if (bombRule && !this.bomb && !this.bombRoundsDone.has(current.roundIndex)) {
+      const inRound = this.state.questions.filter((q) => q.roundIndex === current.roundIndex && q.metadata?.bomb).length;
+      this.bomb = {
+        roundIndex: current.roundIndex,
+        holderId: this.randomPlayer(),
+        number: 1,
+        fuses: splitFuses(inRound, bombRule.count),
+        held: 0,
+        penalty: bombRule.penalty,
+      };
+    }
+    this.liveTimeLimitMs = this.timeLimitFor(current);
+    const question = this.publicQuestion();
+    if (!question) return;
+    this.io.to(this.socketRoom).emit("question:new", question);
+    // A blind-test (ost) question has no hard deadline — Yrud reveals it
+    // manually once the clip has played long enough, unlike every other
+    // theme's auto-reveal-on-timeout.
+    if (question.theme !== "ost") this.scheduleAutoReveal(question.timeLimitMs);
   }
 
   async reveal(): Promise<{ ok: true } | { error: string }> {
@@ -303,9 +448,23 @@ export class EventRoom {
     this.clearAutoReveal();
 
     const question = engine.currentQuestion(this.state);
-    const { state: nextState, result } = engine.reveal(this.state);
+    const game = this.whackGame;
+    const { state: nextState, result } =
+      question?.theme === "whack" && game
+        ? engine.revealScores(
+            this.state,
+            Object.fromEntries(Object.entries(game.hits).map(([id, hits]) => [id, whackScore(game.schedule, hits)]))
+          )
+        : engine.reveal(this.state, this.categoryPointsFor(question));
+    this.whackGame = null;
     this.state = nextState;
     this.lastReveal = result;
+
+    if (question) {
+      this.trackRoundGains(question.roundIndex, result);
+      if (question.metadata?.bomb) this.tickBomb(result);
+      this.maybeOpenSteal(question);
+    }
 
     if (question) {
       const round = await prisma.round.create({
@@ -339,9 +498,57 @@ export class EventRoom {
     if (this.state.phase !== "reveal") {
       return { error: "Révèle d'abord la question en cours." };
     }
+    if (this.steal?.pendingIds.length) {
+      const names = this.steal.pendingIds.map((id) => this.state.players[id]?.name ?? "?").join(", ");
+      return { error: `${names} doit encore choisir à qui voler des points (ou annule le vol).` };
+    }
 
     this.state = engine.advance(this.state, Date.now());
+    return this.afterAdvance();
+  }
+
+  // Yrud's "passer" — drops the live question with no scoring and moves on
+  // exactly as after a reveal + "Question suivante".
+  async skip(): Promise<{ ok: true } | { error: string }> {
+    if (this.state.phase !== "question") return { error: "Aucune question à passer." };
+    this.clearAutoReveal();
+    this.whackGame = null;
+    this.state = engine.skipQuestion(this.state, Date.now());
+    this.lastReveal = undefined;
+    return this.afterAdvance();
+  }
+
+  // Sets one manche's answer time (or clears it with null) — see the
+  // admin:setTimeLimit event for the semantics.
+  async setTimeLimit(seconds: number | null, roundIndex?: number): Promise<{ ok: true } | { error: string }> {
+    const round = roundIndex ?? this.roundRules()?.roundIndex;
+    if (round === undefined) return { error: "Aucune manche à régler." };
+    if (!this.state.questions.some((q) => q.roundIndex === round)) return { error: "Manche introuvable." };
+
+    if (seconds === null) {
+      this.roundTimeLimitMs.delete(round);
+    } else {
+      if (!Number.isFinite(seconds) || seconds < MIN_TIME_LIMIT_SEC || seconds > MAX_TIME_LIMIT_SEC) {
+        return { error: `La durée doit être entre ${MIN_TIME_LIMIT_SEC} et ${MAX_TIME_LIMIT_SEC} secondes.` };
+      }
+      this.roundTimeLimitMs.set(round, Math.round(seconds) * 1000);
+    }
+    this.broadcastSnapshot();
+    return { ok: true };
+  }
+
+  // Everything that follows the state having moved past a question —
+  // shared by next() (after a reveal) and skip() (straight from a live one).
+  private async afterAdvance(): Promise<{ ok: true } | { error: string }> {
     if (this.state.phase === "roundIntro") this.introSeenBy.clear();
+    this.steal = null;
+    // A bomb only lives in its own manche (e.g. if questions were skipped
+    // before every bomb went off).
+    const upcoming = engine.currentQuestion(this.state);
+    if (this.bomb && upcoming?.roundIndex !== this.bomb.roundIndex) {
+      this.bombRoundsDone.add(this.bomb.roundIndex);
+      this.bomb = null;
+    }
 
     if (this.state.phase === "finished") {
       await prisma.event.update({ where: { id: this.eventId }, data: { status: "finished" } });
@@ -380,11 +587,7 @@ export class EventRoom {
       }
     } else if (this.state.phase === "question") {
       // Same manche as before — no cold-open needed, straight to the next question.
-      const question = this.publicQuestion();
-      if (question) {
-        this.io.to(this.socketRoom).emit("question:new", question);
-        if (question.theme !== "ost") this.scheduleAutoReveal(question.timeLimitMs);
-      }
+      this.launchQuestion();
     }
     // else: phase is "roundIntro" (engine.advance just crossed into a new
     // manche) — deliberately no question:new/timer here. The client renders
@@ -392,6 +595,225 @@ export class EventRoom {
     // roundIndex/roundLabel, and beginQuiz() is what actually starts that
     // manche's first question once the admin dismisses it.
 
+    this.broadcastSnapshot();
+    return { ok: true };
+  }
+
+  private clanOf(playerId: string): string {
+    return resolveClan(this.clanByPlayer[playerId], playerId).id;
+  }
+
+  private randomPlayer(excludeClan?: string): string | null {
+    const all = this.state.playerOrder;
+    const pool = (ids: string[]) => {
+      const connected = ids.filter((id) => this.connectedPlayers.has(id));
+      return connected.length ? connected : ids;
+    };
+    const others = excludeClan ? all.filter((id) => this.clanOf(id) !== excludeClan) : all;
+    const candidates = pool(others.length ? others : all);
+    return candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : null;
+  }
+
+  private async setPoints(playerId: string, points: number) {
+    const player = this.state.players[playerId];
+    if (!player) return;
+    this.state = { ...this.state, players: { ...this.state.players, [playerId]: { ...player, points } } };
+    await prisma.player.update({ where: { id: playerId }, data: { points } });
+  }
+
+  // --- Manche 1: categories picked by the clans ----------------------------
+
+  private draftCategories(): string[] {
+    return [...new Set(this.state.questions.map((q) => q.metadata?.category).filter((c): c is string => !!c))];
+  }
+
+  private draftComplete(): boolean {
+    return !!this.categoryDraft && this.categoryDraft.turn >= this.categoryDraft.order.length;
+  }
+
+  private categoryPointsFor(question: InternalQuestion | undefined) {
+    const category = question?.metadata?.category;
+    const worth = question?.metadata?.categoryPoints;
+    if (!category || !worth) return undefined;
+    return (playerId: string) =>
+      this.categoryDraft?.assignments[this.clanOf(playerId)] === category ? worth.own : worth.other;
+  }
+
+  async startDraft(order: string[]): Promise<{ ok: true } | { error: string }> {
+    const categories = this.draftCategories();
+    if (!categories.length) return { error: "Aucune manche à catégories dans cette partie." };
+    const firstCategoryIndex = this.state.questions.findIndex((q) => q.metadata?.category);
+    if (this.state.questionIndex > firstCategoryIndex || (this.state.questionIndex === firstCategoryIndex && this.state.phase !== "roundIntro")) {
+      return { error: "La manche à catégories a déjà commencé." };
+    }
+    const clanIds = CLAN_REGISTRY.map((c) => c.id);
+    if (order.length !== clanIds.length || new Set(order).size !== order.length || order.some((c) => !clanIds.includes(c))) {
+      return { error: "L'ordre doit contenir chaque clan une fois." };
+    }
+    this.categoryDraft = { categories, order, turn: 0, assignments: {}, voteCounts: {}, voterIds: [] };
+    this.draftVotes = {};
+    this.settleDraftTurns();
+    this.broadcastSnapshot();
+    return { ok: true };
+  }
+
+  voteCategory(playerId: string, category: string) {
+    const draft = this.categoryDraft;
+    if (!draft || draft.turn >= draft.order.length) return;
+    if (this.clanOf(playerId) !== draft.order[draft.turn]) return;
+    if (!draft.categories.includes(category) || Object.values(draft.assignments).includes(category)) return;
+    this.draftVotes[playerId] = category;
+    this.refreshVoteCounts();
+    // Everyone of that clan who's here has voted — no need to wait for Yrud.
+    const clan = draft.order[draft.turn];
+    const present = this.state.playerOrder.filter((id) => this.clanOf(id) === clan && this.connectedPlayers.has(id));
+    if (present.every((id) => id in this.draftVotes)) this.resolveDraftTurn();
+    this.broadcastSnapshot();
+  }
+
+  async closeVote(): Promise<{ ok: true } | { error: string }> {
+    const draft = this.categoryDraft;
+    if (!draft || draft.turn >= draft.order.length) return { error: "Aucun vote en cours." };
+    this.resolveDraftTurn();
+    this.broadcastSnapshot();
+    return { ok: true };
+  }
+
+  private refreshVoteCounts() {
+    if (!this.categoryDraft) return;
+    const counts: Record<string, number> = {};
+    for (const c of Object.values(this.draftVotes)) counts[c] = (counts[c] ?? 0) + 1;
+    this.categoryDraft = { ...this.categoryDraft, voteCounts: counts, voterIds: Object.keys(this.draftVotes) };
+  }
+
+  // Majority wins; a tie (or nobody voting) is drawn at random among the
+  // top/remaining categories.
+  private resolveDraftTurn() {
+    const draft = this.categoryDraft;
+    if (!draft) return;
+    const remaining = draft.categories.filter((c) => !Object.values(draft.assignments).includes(c));
+    const best = Math.max(0, ...remaining.map((c) => draft.voteCounts[c] ?? 0));
+    const top = remaining.filter((c) => (draft.voteCounts[c] ?? 0) === best);
+    const pick = top[Math.floor(Math.random() * top.length)];
+    this.categoryDraft = {
+      ...draft,
+      assignments: { ...draft.assignments, [draft.order[draft.turn]]: pick },
+      turn: draft.turn + 1,
+      voteCounts: {},
+      voterIds: [],
+    };
+    this.draftVotes = {};
+    this.settleDraftTurns();
+  }
+
+  // Skips the vote when there's nothing to decide: a single category left,
+  // or a clan with nobody here to vote.
+  private settleDraftTurns() {
+    const draft = this.categoryDraft;
+    if (!draft || draft.turn >= draft.order.length) return;
+    const remaining = draft.categories.filter((c) => !Object.values(draft.assignments).includes(c));
+    const clan = draft.order[draft.turn];
+    const present = this.state.playerOrder.some((id) => this.clanOf(id) === clan && this.connectedPlayers.has(id));
+    if (remaining.length <= 1 || !present) {
+      if (remaining.length === 0) {
+        this.categoryDraft = { ...draft, turn: draft.order.length };
+        return;
+      }
+      this.resolveDraftTurn();
+    }
+  }
+
+  // --- Manche 3: the bomb ---------------------------------------------------
+
+  // The holder answering right passes the bomb to someone of another clan;
+  // then the fuse burns one question, and if it's out the bomb goes off on
+  // whoever holds it now: every player of that clan loses `penalty`.
+  private tickBomb(result: RevealResult) {
+    const bomb = this.bomb;
+    if (!bomb) return;
+    const holder = bomb.holderId;
+    if (holder && result.results.find((r) => r.playerId === holder)?.correct) {
+      bomb.holderId = this.randomPlayer(this.clanOf(holder));
+    }
+    bomb.held += 1;
+    if (bomb.held < bomb.fuses[bomb.number - 1]) return;
+
+    const victim = bomb.holderId;
+    if (victim) {
+      const clan = this.clanOf(victim);
+      const affectedIds = this.state.playerOrder.filter((id) => this.clanOf(id) === clan);
+      for (const id of affectedIds) {
+        const player = this.state.players[id];
+        const points = Math.max(0, player.points - bomb.penalty);
+        this.state = { ...this.state, players: { ...this.state.players, [id]: { ...player, points } } };
+        const entry = result.results.find((r) => r.playerId === id);
+        if (entry) {
+          entry.delta += points - entry.points;
+          entry.points = points;
+        }
+      }
+      this.io.to(this.socketRoom).emit("bomb:explode", { holderId: victim, clan, penalty: bomb.penalty, affectedIds });
+    }
+    if (bomb.number >= bomb.fuses.length) {
+      this.bombRoundsDone.add(bomb.roundIndex);
+      this.bomb = null;
+    } else {
+      bomb.number += 1;
+      bomb.held = 0;
+      bomb.holderId = this.randomPlayer();
+    }
+  }
+
+  // --- Manche 4: the winner steals ------------------------------------------
+
+  private trackRoundGains(roundIndex: number, result: RevealResult) {
+    if (this.roundGains?.roundIndex !== roundIndex) this.roundGains = { roundIndex, byPlayer: {} };
+    for (const r of result.results) {
+      this.roundGains.byPlayer[r.playerId] = (this.roundGains.byPlayer[r.playerId] ?? 0) + r.delta;
+    }
+  }
+
+  private maybeOpenSteal(question: InternalQuestion) {
+    const amount = question.metadata?.steal;
+    if (!amount) return;
+    const next = this.state.questions[this.state.questionIndex + 1];
+    if (next && next.roundIndex === question.roundIndex) return; // not the manche's last question
+    const gains = this.roundGains?.byPlayer ?? {};
+    const best = Math.max(0, ...Object.values(gains));
+    if (best <= 0) return;
+    const pendingIds = Object.keys(gains).filter((id) => gains[id] === best);
+    this.steal = { amount, pendingIds, done: [] };
+  }
+
+  async stealPoints(thiefId: string, victimId: string): Promise<{ ok: true } | { error: string }> {
+    const steal = this.steal;
+    if (!steal || !steal.pendingIds.includes(thiefId)) return { error: "Tu n'as rien à voler." };
+    if (thiefId === victimId || !this.state.players[victimId]) return { error: "Choisis un autre joueur." };
+    const victim = this.state.players[victimId];
+    const amount = Math.min(steal.amount, victim.points);
+    await this.setPoints(victimId, victim.points - amount);
+    await this.setPoints(thiefId, this.state.players[thiefId].points + amount);
+    this.steal = {
+      ...steal,
+      pendingIds: steal.pendingIds.filter((id) => id !== thiefId),
+      done: [...steal.done, { thiefId, victimId, amount }],
+    };
+    this.io.to(this.socketRoom).emit("steal:done", { thiefId, victimId, amount });
+    this.broadcastSnapshot();
+    return { ok: true };
+  }
+
+  sliderTrick(trick: string): { ok: true } | { error: string } {
+    const question = engine.currentQuestion(this.state);
+    if (this.state.phase !== "question" || question?.theme !== "slider") return { error: "Aucun curseur en cours." };
+    if (!SLIDER_TRICKS.some((t) => t.id === trick)) return { error: "Coup inconnu." };
+    this.io.to(this.socketRoom).emit("slider:trick", { trick: trick as SliderTrick });
+    return { ok: true };
+  }
+
+  async skipSteal(): Promise<{ ok: true } | { error: string }> {
+    if (!this.steal?.pendingIds.length) return { error: "Aucun vol en attente." };
+    this.steal = { ...this.steal, pendingIds: [] };
     this.broadcastSnapshot();
     return { ok: true };
   }
@@ -682,4 +1104,14 @@ export class EventRoom {
       finalBattleWinnerName: finalBattleWinnerId ? (this.state.players[finalBattleWinnerId]?.name ?? null) : null,
     };
   }
+}
+
+// Splits a manche's `questions` among `bombs` fuses (each at least 2
+// questions when there's room), so the last bomb goes off on the last one.
+export function splitFuses(questions: number, bombs: number): number[] {
+  const count = Math.max(1, Math.min(bombs, questions));
+  const minimum = questions >= count * 2 ? 2 : 1;
+  const fuses = Array<number>(count).fill(minimum);
+  for (let left = questions - minimum * count; left > 0; left--) fuses[Math.floor(Math.random() * count)] += 1;
+  return fuses;
 }

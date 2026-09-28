@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import gsap from "gsap";
+import type { RoundRules } from "@yrud/shared";
 import { playTaunt } from "@/lib/sfx";
+import { RoundRulesCard } from "@/components/quiz/RoundRulesCard";
 
 interface YrudDialogueProps {
   lines: string[];
@@ -14,6 +16,9 @@ interface YrudDialogueProps {
   // the server "this player has seen it" (purely advisory, see
   // ArenaSnapshot.introSeenPlayerIds; never gates anything).
   onFinished?: () => void;
+  // When given, one last step after the spoken lines presents how this
+  // manche scores — so players read the stakes before the clock starts.
+  rules?: RoundRules;
 }
 
 // Yrud's cold-open, reused for every scripted moment: the game's opening
@@ -22,7 +27,7 @@ interface YrudDialogueProps {
 // timer, not just a cosmetic overlay), and the final-battle announcement
 // (not phase-gated — combat:announce is a one-shot event, the actual battle
 // start is already admin-paced via team pasting).
-export function YrudDialogue({ lines, waitingLabel, onFinished }: YrudDialogueProps) {
+export function YrudDialogue({ lines, waitingLabel, onFinished, rules }: YrudDialogueProps) {
   const [lineIndex, setLineIndex] = useState(0);
   const [finished, setFinished] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -32,10 +37,17 @@ export function YrudDialogue({ lines, waitingLabel, onFinished }: YrudDialoguePr
 
   // A new dialogue script (e.g. moving from the intro to a round-intro)
   // should always restart at line 0, not resume wherever the last one left off.
+  // Keyed on the script's content, not the array identity: callers may build
+  // the array fresh on every render, and every server snapshot re-renders
+  // them — that used to snap the dialogue back to line 0 mid-read.
+  const scriptKey = lines.join("\n");
   useEffect(() => {
     setLineIndex(0);
     setFinished(false);
-  }, [lines]);
+  }, [scriptKey]);
+
+  const showingRules = Boolean(rules) && lineIndex === lines.length;
+  const lastStep = lines.length - 1 + (rules ? 1 : 0);
 
   useEffect(() => {
     if (heroRef.current) {
@@ -66,7 +78,7 @@ export function YrudDialogue({ lines, waitingLabel, onFinished }: YrudDialoguePr
 
   function advance() {
     if (finished) return;
-    if (lineIndex < lines.length - 1) {
+    if (lineIndex < lastStep) {
       setLineIndex((i) => i + 1);
     } else {
       setFinished(true);
@@ -113,7 +125,16 @@ export function YrudDialogue({ lines, waitingLabel, onFinished }: YrudDialoguePr
         />
       </div>
 
-      <div ref={boxRef} className="absolute inset-x-[2%] bottom-[3%] sm:inset-x-[6%] sm:bottom-[5%]">
+      {showingRules && rules && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 px-4 py-6 sm:justify-end sm:pr-[8%]">
+          <RoundRulesCard rules={rules} />
+        </div>
+      )}
+
+      <div
+        ref={boxRef}
+        className={`absolute inset-x-[2%] bottom-[3%] sm:inset-x-[6%] sm:bottom-[5%] ${showingRules ? "invisible" : ""}`}
+      >
         <div className="relative w-full" style={{ aspectRatio: "2172 / 724" }}>
           <Image src="/dialogue/Textbox.png" alt="" fill sizes="100vw" className="object-contain" />
           <div
@@ -132,7 +153,7 @@ export function YrudDialogue({ lines, waitingLabel, onFinished }: YrudDialoguePr
       </div>
 
       <span
-        className={`absolute bottom-1 right-3 text-[10px] uppercase tracking-widest sm:bottom-2 sm:right-6 sm:text-xs ${
+        className={`absolute bottom-1 right-3 z-20 text-[10px] uppercase tracking-widest sm:bottom-2 sm:right-6 sm:text-xs ${
           finished ? "text-gold-bright" : "animate-pulse text-white/60"
         }`}
       >

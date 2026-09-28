@@ -6,3 +6,5 @@ export * from "./pranks";
 export * from "./clans";
 export * from "./showdown-types";
 export * from "./summary-types";
+export * from "./whack";
+export * from "./specialRounds";

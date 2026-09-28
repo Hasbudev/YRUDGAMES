@@ -135,6 +135,8 @@ describe("FinalBattleRunner", () => {
     );
     expect(runner.forfeit("p1id")).toEqual({ ok: true });
     expect(ended).toBe("p2id");
+    expect(runner.snapshot.winnerId).toBe("p2id");
+    expect(runner.snapshot.ended).toBe(true);
     expect(runner.forfeit("p2id")).toEqual({ error: "La bataille est déjà terminée." });
   });
 

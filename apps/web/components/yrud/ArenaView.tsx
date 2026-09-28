@@ -1,14 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import type { ArenaSnapshot } from "@yrud/shared";
 import { PlayerToken } from "./PlayerToken";
+import { LiveRanking } from "./LiveRanking";
 
 interface ArenaViewProps {
   snapshot: ArenaSnapshot;
+  myPlayerId?: string;
 }
 
-export function ArenaView({ snapshot }: ArenaViewProps) {
+export function ArenaView({ snapshot, myPlayerId }: ArenaViewProps) {
+  // The ranking is the easier read, so it's the default; the player cards
+  // (with their answer/verdict animations) stay one tap away.
+  const [view, setView] = useState<"ranking" | "cards">("ranking");
   const verdictByPlayer = new Map<string, "correct" | "wrong">();
   if (snapshot.lastReveal) {
     for (const r of snapshot.lastReveal.results) {
@@ -32,17 +38,43 @@ export function ArenaView({ snapshot }: ArenaViewProps) {
             {answeredSet.size} / {playerCount} ont répondu
           </span>
         )}
+        <div className="flex overflow-hidden rounded-lg border border-border text-xs font-semibold">
+          {(["ranking", "cards"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`px-3 py-1 transition-colors ${
+                view === v ? "bg-gold text-void-deep" : "text-ink-muted hover:text-ink"
+              }`}
+            >
+              {v === "ranking" ? "Classement" : "Cartes"}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-        {snapshot.players.map((player) => (
-          <PlayerToken
-            key={player.id}
-            player={player}
-            revealVerdict={verdictByPlayer.get(player.id) ?? null}
-            hasAnswered={snapshot.phase === "question" && answeredSet.has(player.id)}
-          />
-        ))}
-      </div>
+      {view === "ranking" ? (
+        <LiveRanking
+          players={snapshot.players}
+          lastReveal={snapshot.lastReveal}
+          revealing={snapshot.phase === "reveal" && Boolean(snapshot.lastReveal)}
+          revealKey={snapshot.phase === "reveal" && snapshot.lastReveal ? (snapshot.question?.id ?? "reveal") : null}
+          answeredPlayerIds={snapshot.answeredPlayerIds}
+          answering={snapshot.phase === "question"}
+          myPlayerId={myPlayerId}
+        />
+      ) : (
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
+          {snapshot.players.map((player) => (
+            <PlayerToken
+              key={player.id}
+              player={player}
+              revealVerdict={verdictByPlayer.get(player.id) ?? null}
+              hasAnswered={snapshot.phase === "question" && answeredSet.has(player.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

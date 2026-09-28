@@ -36,6 +36,11 @@ const mediaUrlSchema = z
 // inverts whatever this value is, it doesn't change it).
 const pointsSchema = z.number().int().min(1).max(20).default(1);
 
+// Free-text question (trivia or blind test) — no choices shown, players type
+// their answer, matched against these. `choices` then holds only the answer
+// displayed at reveal.
+const acceptedAnswersSchema = z.array(z.string().min(1).max(60)).min(1).max(10).optional();
+
 // Grouping questions into a "manche" (round) for the title-card banner, and
 // scoring beyond the flat default — a wrong pick costing points, a blank
 // costing something different, a streak bonus. All optional; a question
@@ -51,6 +56,9 @@ const roundFields = {
   // (via blankPoints) can lose points. correctIndex is still required by
   // the schema but is meaningless when this is set.
   allCorrect: z.boolean().default(false),
+  // Seconds to answer — omitted = the server default. Ignored for blind
+  // tests (ost), which have no clock.
+  timeLimitSec: z.number().int().min(5).max(300).optional(),
 };
 
 // Discriminated on theme so each question type gets the validation it
@@ -60,9 +68,14 @@ const questionInputSchema = z.discriminatedUnion("theme", [
   z.object({
     theme: z.literal("trivia"),
     prompt: z.string().min(1).max(300),
-    choices: z.array(z.string().min(1).max(120)).min(2).max(6),
+    choices: z.array(z.string().min(1).max(120)).min(1).max(6),
     correctIndex: z.number().int().min(0),
     mediaUrl: mediaUrlSchema,
+    acceptedAnswers: acceptedAnswersSchema,
+    category: z.string().min(1).max(60).optional(),
+    categoryPoints: z.object({ own: z.number().int().min(0).max(50), other: z.number().int().min(0).max(50) }).optional(),
+    bomb: z.object({ count: z.number().int().min(1).max(10), penalty: z.number().int().min(1).max(100) }).optional(),
+    steal: z.number().int().min(1).max(100).optional(),
     points: pointsSchema,
     ...roundFields,
   }),
@@ -77,13 +90,14 @@ const questionInputSchema = z.discriminatedUnion("theme", [
   z.object({
     theme: z.literal("ost"),
     prompt: z.string().min(1).max(300),
-    choices: z.array(z.string().min(1).max(120)).min(2).max(6),
+    choices: z.array(z.string().min(1).max(120)).min(1).max(6),
     correctIndex: z.number().int().min(0),
     mediaUrl: mediaUrlSchema,
     notes: z.array(melodyNoteSchema).min(1).max(64).optional(),
     // Blind test — a local audio file's filename under apps/web/public/blindtest
     // (e.g. "1ZoneZero.wav"), served as a static asset by the Next app.
     audioFile: z.string().min(1).max(200).optional(),
+    acceptedAnswers: acceptedAnswersSchema,
     points: pointsSchema,
     ...roundFields,
   }),
@@ -96,14 +110,64 @@ const questionInputSchema = z.discriminatedUnion("theme", [
     points: pointsSchema,
     ...roundFields,
   }),
+  // Stat slider — correctIndex is the stat's real maximum; the cursor sweeps
+  // slider.low..slider.high.
+  z.object({
+    theme: z.literal("slider"),
+    prompt: z.string().min(1).max(300),
+    choices: z.array(z.string()).max(0).default([]),
+    correctIndex: z.number().int().min(0),
+    slider: z.object({
+      pokemon: z.string().min(1).max(60),
+      species: z.string().min(1).max(60),
+      stat: z.string().min(1).max(40),
+      low: z.number().int().min(0),
+      high: z.number().int().min(1),
+    }),
+    points: pointsSchema,
+    ...roundFields,
+  }),
+  // Chasse-taupes — no choices at all; the moles' points are fixed in
+  // shared/whack.ts, only the game's length is set here.
+  z.object({
+    theme: z.literal("whack"),
+    prompt: z.string().min(1).max(300),
+    choices: z.array(z.string()).max(0).default([]),
+    correctIndex: z.number().int().min(0).default(0),
+    durationSec: z.number().int().min(15).max(180).default(60),
+    points: pointsSchema,
+    ...roundFields,
+  }),
 ]);
+
+// Only a free-text blind test question may have fewer than 2 choices.
+function hasEnoughChoices(q: z.infer<typeof questionInputSchema>): boolean {
+  if (q.theme === "whack" || q.theme === "slider") return true;
+  return q.choices.length >= 2 || ((q.theme === "ost" || q.theme === "trivia") && !!q.acceptedAnswers?.length);
+}
+const checkedQuestionSchema = questionInputSchema.refine(hasEnoughChoices, {
+  message: "Au moins 2 choix (sauf question à réponse libre)",
+  path: ["choices"],
+});
 
 function toMetadata(data: z.infer<typeof questionInputSchema>) {
   if (data.theme === "ost") {
-    if (!data.notes && !data.audioFile) return undefined;
-    return { notes: data.notes, audioFile: data.audioFile };
+    if (!data.notes && !data.audioFile && !data.acceptedAnswers) return undefined;
+    return { notes: data.notes, audioFile: data.audioFile, acceptedAnswers: data.acceptedAnswers };
   }
   if (data.theme === "stats") return { stat: data.stat };
+  if (data.theme === "whack") return { whack: { durationMs: data.durationSec * 1000 } };
+  if (data.theme === "slider") return { slider: data.slider };
+  if (data.theme === "trivia") {
+    const meta = {
+      acceptedAnswers: data.acceptedAnswers,
+      category: data.category,
+      categoryPoints: data.categoryPoints,
+      bomb: data.bomb,
+      steal: data.steal,
+    };
+    return Object.values(meta).some((v) => v !== undefined) ? meta : undefined;
+  }
   return undefined;
 }
 
@@ -116,6 +180,7 @@ function roundData(data: z.infer<typeof questionInputSchema>) {
     comboThreshold: data.comboThreshold ?? null,
     comboBonus: data.comboBonus ?? null,
     allCorrect: data.allCorrect,
+    timeLimitSec: data.timeLimitSec ?? null,
   };
 }
 
@@ -136,6 +201,7 @@ function serialize(q: {
   comboThreshold: number | null;
   comboBonus: number | null;
   allCorrect: boolean;
+  timeLimitSec: number | null;
 }) {
   return {
     id: q.id,
@@ -154,6 +220,7 @@ function serialize(q: {
     comboThreshold: q.comboThreshold,
     comboBonus: q.comboBonus,
     allCorrect: q.allCorrect,
+    timeLimitSec: q.timeLimitSec,
   };
 }
 
@@ -181,7 +248,7 @@ async function nextOrder(bankId: string): Promise<number> {
 }
 
 questionsRouter.post("/question-banks/:bankId/questions", async (req, res) => {
-  const parsed = questionInputSchema.safeParse(req.body);
+  const parsed = checkedQuestionSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Question invalide.", details: parsed.error.flatten() });
     return;
@@ -212,7 +279,7 @@ questionsRouter.post("/question-banks/:bankId/questions", async (req, res) => {
 });
 
 questionsRouter.put("/questions/:id", async (req, res) => {
-  const parsed = questionInputSchema.safeParse(req.body);
+  const parsed = checkedQuestionSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Question invalide.", details: parsed.error.flatten() });
     return;
@@ -283,7 +350,7 @@ questionsRouter.post("/questions/:id/move", async (req, res) => {
   res.json({ ok: true });
 });
 
-const bulkImportSchema = z.object({ questions: z.array(questionInputSchema).min(1).max(300) });
+const bulkImportSchema = z.object({ questions: z.array(checkedQuestionSchema).min(1).max(300) });
 
 questionsRouter.post("/question-banks/:bankId/questions/bulk", async (req, res) => {
   const parsed = bulkImportSchema.safeParse(req.body);

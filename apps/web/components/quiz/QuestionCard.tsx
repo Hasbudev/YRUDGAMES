@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import type { PublicQuestion } from "@yrud/shared";
 import { TimerBar } from "./TimerBar";
@@ -13,6 +14,10 @@ interface QuestionCardProps {
   disabled: boolean;
   selectedIndex: number | null;
   onAnswer: (choiceIndex: number) => void;
+  // Free-text question (metadata.freeText) — the typed answer.
+  onAnswerText?: (text: string) => void;
+  // Manche 1 — whose category this question is, from the viewer's side.
+  categoryInfo?: { owner?: string; mine: boolean; points: number };
 }
 
 // "speed" stays here for type completeness (PublicQuestion["theme"] still
@@ -23,12 +28,15 @@ const THEME_LABEL: Record<PublicQuestion["theme"], string> = {
   ost: "Devine la musique",
   stats: "Duel de stats",
   speed: "Manche rapide",
+  whack: "Chasse-taupes",
+  slider: "Stat max",
 };
 
 const CHOICE_LETTERS: ChoiceLetter[] = ["a", "b", "c", "d"];
 const FALLBACK_LETTERS = ["A", "B", "C", "D", "E", "F"];
 
-export function QuestionCard({ question, disabled, selectedIndex, onAnswer }: QuestionCardProps) {
+export function QuestionCard({ question, disabled, selectedIndex, onAnswer, onAnswerText, categoryInfo }: QuestionCardProps) {
+  const [text, setText] = useState("");
   const isStats = question.theme === "stats" && question.choices.length === 2;
   const usesPillArt = !isStats && question.choices.length <= CHOICE_LETTERS.length;
 
@@ -40,13 +48,28 @@ export function QuestionCard({ question, disabled, selectedIndex, onAnswer }: Qu
             {THEME_LABEL[question.theme]}
           </span>
           <span className="text-ink-muted">
-            Question {question.questionIndex + 1} sur {question.questionCount} · vaut {question.points} pt
-            {question.points === 1 ? "" : "s"}
+            Question {question.questionIndex + 1} sur {question.questionCount} · vaut{" "}
+            {categoryInfo?.points ?? question.points} pt{(categoryInfo?.points ?? question.points) === 1 ? "" : "s"}
           </span>
         </div>
         {/* Blind test has no deadline — Yrud decides live when to reveal —
             so showing a countdown that doesn't actually do anything would
             just be misleading. */}
+        {question.metadata?.category && (
+          <p
+            className={`self-start rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide ${
+              categoryInfo?.mine
+                ? "border-emerald-400/60 bg-emerald-400/15 text-emerald-300"
+                : "border-border bg-void-deep/60 text-ink-muted"
+            }`}
+          >
+            {question.metadata.category}
+            {categoryInfo &&
+              (categoryInfo.mine
+                ? ` · ta catégorie · +${categoryInfo.points} pts`
+                : ` · catégorie ${categoryInfo.owner ? `de ${categoryInfo.owner}` : "libre"} · +${categoryInfo.points} pts`)}
+          </p>
+        )}
         {question.theme !== "ost" && <TimerBar startedAt={question.startedAt} timeLimitMs={question.timeLimitMs} />}
         <h2 className="font-display text-xl font-semibold text-ink">{question.prompt}</h2>
 
@@ -74,7 +97,27 @@ export function QuestionCard({ question, disabled, selectedIndex, onAnswer }: Qu
             <OstPlayer notes={question.metadata?.notes} mediaUrl={question.mediaUrl} />
           ))}
 
-        {isStats ? (
+        {question.metadata?.freeText ? (
+          <form
+            className="flex flex-col gap-3 sm:flex-row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!disabled && text.trim()) onAnswerText?.(text.trim());
+            }}
+          >
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              disabled={disabled}
+              maxLength={60}
+              placeholder="Écris ta réponse..."
+              className="flex-1 rounded-xl border border-gold/40 bg-void-deep/60 px-4 py-3 text-ink focus:border-gold focus:outline-none disabled:opacity-60"
+            />
+            <button type="submit" disabled={disabled || !text.trim()} className="btn-gold rounded-xl disabled:opacity-40">
+              {disabled && selectedIndex !== null ? "Réponse envoyée ✓" : "Valider"}
+            </button>
+          </form>
+        ) : isStats ? (
           <div className="grid grid-cols-2 items-stretch gap-4">
             {question.choices.map((choice, i) => (
               <button

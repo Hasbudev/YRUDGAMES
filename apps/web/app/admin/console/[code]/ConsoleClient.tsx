@@ -24,6 +24,8 @@ import { FinalBattleView } from "@/components/battle/FinalBattleView";
 import { EndGameSummary } from "@/components/summary/EndGameSummary";
 import { InterferenceCutIn } from "@/components/battle/InterferenceCutIn";
 import { AmbiancePlayer } from "@/components/scene/AmbiancePlayer";
+import { RoundControls } from "@/components/admin/RoundControls";
+import { SpecialRoundsPanel } from "@/components/admin/SpecialRoundsPanel";
 
 interface ActiveDuel {
   opponentId: string;
@@ -48,6 +50,8 @@ const THEME_LABEL: Record<string, string> = {
   ost: "devine la musique",
   stats: "duel de stats",
   speed: "manche rapide",
+  whack: "chasse-taupes",
+  slider: "curseur de stats",
 };
 
 export function ConsoleClient({ code }: { code: string }) {
@@ -142,11 +146,25 @@ export function ConsoleClient({ code }: { code: string }) {
   }
 
   function runAction(
-    action: "admin:start" | "admin:beginQuiz" | "admin:reveal" | "admin:next" | "admin:toggleTrap"
+    action: "admin:start" | "admin:beginQuiz" | "admin:reveal" | "admin:next" | "admin:toggleTrap" | "admin:skip"
   ) {
     const socket = socketRef.current;
     if (!socket) return;
     socket.emit(action, (res) => {
+      if (res && "error" in res) setActionError(res.error);
+      else setActionError(null);
+    });
+  }
+
+  function skipQuestion() {
+    if (!window.confirm("Passer cette question ? Personne ne gagne ni ne perd de points dessus.")) return;
+    runAction("admin:skip");
+  }
+
+  function setTimeLimit(seconds: number | null) {
+    const socket = socketRef.current;
+    if (!socket) return;
+    socket.emit("admin:setTimeLimit", { seconds }, (res) => {
       if (res && "error" in res) setActionError(res.error);
       else setActionError(null);
     });
@@ -216,6 +234,20 @@ export function ConsoleClient({ code }: { code: string }) {
         else setActionError(null);
       }
     );
+  }
+
+  function emitAdmin(event: "admin:closeVote" | "admin:skipSteal") {
+    socketRef.current?.emit(event, (res) => {
+      if (res && "error" in res) setActionError(res.error);
+      else setActionError(null);
+    });
+  }
+
+  function startDraft(order: string[]) {
+    socketRef.current?.emit("admin:startDraft", { order }, (res) => {
+      if (res && "error" in res) setActionError(res.error);
+      else setActionError(null);
+    });
   }
 
   function triggerInterference(type: (typeof INTERFERENCE_REGISTRY)[number]["type"], optionId?: string) {
@@ -313,15 +345,41 @@ export function ConsoleClient({ code }: { code: string }) {
         >
           {snapshot.trapActive ? "🪤 Piège armé !" : "🪤 Question piège"}
         </button>
+        <button
+          onClick={skipQuestion}
+          disabled={snapshot.phase !== "question"}
+          className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-ink-muted transition-colors hover:border-crimson hover:text-crimson-bright disabled:opacity-40"
+          title="Abandonne la question en cours sans aucun point et passe à la suite."
+        >
+          ⏭ Passer la question
+        </button>
       </div>
       {snapshot.phase === "question" && (
         <p className="text-xs text-ink-muted">
           {snapshot.question?.theme === "ost"
             ? "Blind test : pas de révélation automatique — clique \"Révéler la réponse\" quand tu es prêt."
+            : snapshot.question?.theme === "whack"
+            ? "Chasse-taupes en cours : les scores tombent automatiquement à la fin du chrono. Pranks et provocations mettent la partie en pause."
             : "Révélation automatique quand le temps est écoulé — le bouton ci-dessus le fait juste en avance."}
         </p>
       )}
       {actionError && <p className="text-sm text-crimson-bright">{actionError}</p>}
+
+      <SpecialRoundsPanel
+        snapshot={snapshot}
+        onStartDraft={startDraft}
+        onCloseVote={() => emitAdmin("admin:closeVote")}
+        onSkipSteal={() => emitAdmin("admin:skipSteal")}
+        onSliderTrick={(trick) =>
+          socketRef.current?.emit("admin:sliderTrick", { trick }, (res) => {
+            if (res && "error" in res) setActionError(res.error);
+          })
+        }
+      />
+
+      {snapshot.roundRules && (
+        <RoundControls rules={snapshot.roundRules} phase={snapshot.phase} onSetTimeLimit={setTimeLimit} />
+      )}
 
       <div className="panel-ornate w-full rounded-2xl p-4">
         {/* pl-5 clears the .panel-ornate corner flourish (2.25rem) sitting

@@ -81,3 +81,9 @@ export function playDuelWin() {
   tone(659, 0.15, "sine", 0.16, 0.12);
   tone(784, 0.25, "sine", 0.16, 0.24);
 }
+
+// Chasse-taupes tap — short, so rapid taps don't pile into mush.
+export function playWhack(good: boolean) {
+  if (good) tone(880, 0.07, "square", 0.08, 0);
+  else tone(180, 0.15, "sawtooth", 0.1, 0);
+}

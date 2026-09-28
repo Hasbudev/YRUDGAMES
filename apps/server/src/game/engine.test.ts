@@ -8,6 +8,7 @@ import {
   enterIntro,
   reveal,
   setTrap,
+  skipQuestion,
   startGame,
   submitAnswer,
   winners,
@@ -266,5 +267,56 @@ describe("quiz engine", () => {
     expect(finalState.phase).toBe("finished");
     // p1: correct, wrong = 1pt. p2: wrong, correct = 1pt. Tied for 1st.
     expect(winners(finalState).sort()).toEqual(["p1", "p2"]);
+  });
+
+  it("reports each player's per-question delta, including penalties clamped at zero", () => {
+    const questions: InternalQuestion[] = [
+      { id: "q", theme: "trivia", prompt: "Q", choices: ["a", "b"], correctIndex: 0, timeLimitMs: 10000, points: 2, roundIndex: 0, wrongPoints: -3 },
+    ];
+    let state = createInitialState(questions);
+    state = addPlayer(state, { id: "p1", name: "Alice" });
+    state = addPlayer(state, { id: "p2", name: "Bob" });
+    state = { ...state, players: { ...state.players, p2: { ...state.players.p2, points: 1 } } };
+    state = beginQuiz(state, 1000);
+    state = submitAnswer(state, "p1", 0); // correct: +2
+    state = submitAnswer(state, "p2", 1); // wrong: 1 - 3 clamps to 0, real movement is -1
+
+    const { result } = reveal(state);
+    expect(result.results.find((r) => r.playerId === "p1")?.delta).toBe(2);
+    expect(result.results.find((r) => r.playerId === "p2")?.delta).toBe(-1);
+  });
+
+  it("skipQuestion drops the live question without scoring anything and moves on", () => {
+    let state = twoPlayerLobby();
+    state = beginQuiz(state, 1000);
+    state = submitAnswer(state, "p1", 0); // would have been correct
+
+    const skipped = skipQuestion(state, 2000);
+    expect(skipped.phase).toBe("question");
+    expect(currentQuestion(skipped)?.id).toBe("q2");
+    expect(skipped.questionStartedAt).toBe(2000);
+    expect(skipped.answers).toEqual({});
+    expect(skipped.players.p1.points).toBe(0);
+    expect(skipped.players.p1.streak).toBe(0);
+  });
+
+  it("skipQuestion crosses into a new manche's intro, and finishes after the last question", () => {
+    const twoRound: InternalQuestion[] = [
+      { id: "r1", theme: "trivia", prompt: "R1", choices: ["a", "b"], correctIndex: 0, timeLimitMs: 10000, points: 1, roundIndex: 1, wrongPoints: 0 },
+      { id: "r2", theme: "trivia", prompt: "R2", choices: ["a", "b"], correctIndex: 0, timeLimitMs: 10000, points: 1, roundIndex: 2, wrongPoints: 0 },
+    ];
+    let state = createInitialState(twoRound);
+    state = addPlayer(state, { id: "p1", name: "Alice" });
+    state = beginQuiz(state, 1000);
+
+    state = skipQuestion(state, 2000);
+    expect(state.phase).toBe("roundIntro");
+    state = confirmRoundIntro(state, 3000);
+    expect(skipQuestion(state, 4000).phase).toBe("finished");
+  });
+
+  it("skipQuestion is a no-op outside a live question", () => {
+    const state = twoPlayerLobby();
+    expect(skipQuestion(state, 1000)).toBe(state);
   });
 });

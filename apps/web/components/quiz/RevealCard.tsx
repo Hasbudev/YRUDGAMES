@@ -15,6 +15,8 @@ const THEME_LABEL: Record<PublicQuestion["theme"], string> = {
   ost: "Devine la musique",
   stats: "Duel de stats",
   speed: "Manche rapide",
+  whack: "Chasse-taupes",
+  slider: "Stat max",
 };
 
 const CHOICE_LETTERS: ChoiceLetter[] = ["a", "b", "c", "d"];

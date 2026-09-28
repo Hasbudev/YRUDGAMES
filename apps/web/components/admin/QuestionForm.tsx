@@ -6,7 +6,7 @@ import type { QuestionInput, QuestionRecord, QuestionTheme } from "@/lib/api";
 // "speed" is intentionally excluded — the speed round feature was removed,
 // so admins can no longer create new speed-themed questions (legacy rows
 // stay representable in the Prisma enum, but aren't selectable here).
-const THEME_LABEL: Record<Exclude<QuestionTheme, "speed">, string> = {
+const THEME_LABEL: Record<Exclude<QuestionTheme, "speed" | "whack" | "slider">, string> = {
   trivia: "Quiz de Yrud",
   ost: "Devine la musique",
   stats: "Duel de stats",
@@ -38,8 +38,10 @@ interface QuestionFormProps {
 }
 
 export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: QuestionFormProps) {
-  const [theme, setTheme] = useState<Exclude<QuestionTheme, "speed">>(
-    initial?.theme && initial.theme !== "speed" ? initial.theme : "trivia"
+  const [theme, setTheme] = useState<Exclude<QuestionTheme, "speed" | "whack" | "slider">>(
+    initial?.theme && initial.theme !== "speed" && initial.theme !== "whack" && initial.theme !== "slider"
+      ? initial.theme
+      : "trivia"
   );
   const [prompt, setPrompt] = useState(initial?.prompt ?? "");
   const [choices, setChoices] = useState<string[]>(initial?.choices ?? ["", "", "", ""]);
@@ -48,6 +50,14 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
   const [notesText, setNotesText] = useState(serializeNotes(initial?.metadata?.notes));
   const [stat, setStat] = useState(initial?.metadata?.stat ?? "");
   const [audioFile, setAudioFile] = useState(initial?.metadata?.audioFile ?? "");
+  // Comma-separated; non-empty makes it a free-text question (no choices shown
+  // to players, the single "choice" is the answer displayed at reveal).
+  const [acceptedText, setAcceptedText] = useState((initial?.metadata?.acceptedAnswers ?? []).join(", "));
+  const acceptedAnswers = acceptedText
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+  const freeText = theme !== "stats" && acceptedAnswers.length > 0;
   const [points, setPoints] = useState(initial?.points ?? 1);
   const [roundIndex, setRoundIndex] = useState(initial?.roundIndex ?? 0);
   const [roundLabel, setRoundLabel] = useState(initial?.roundLabel ?? "");
@@ -56,6 +66,7 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
   const [comboThreshold, setComboThreshold] = useState(initial?.comboThreshold ?? "");
   const [comboBonus, setComboBonus] = useState(initial?.comboBonus ?? "");
   const [allCorrect, setAllCorrect] = useState(initial?.allCorrect ?? false);
+  const [timeLimitSec, setTimeLimitSec] = useState(initial?.timeLimitSec ?? "");
 
   function roundFields() {
     return {
@@ -66,12 +77,15 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
       comboThreshold: comboThreshold === "" ? undefined : Number(comboThreshold),
       comboBonus: comboBonus === "" ? undefined : Number(comboBonus),
       allCorrect,
+      // A blind test has no clock (Yrud reveals it by hand), so a duration
+      // there would be dead data.
+      timeLimitSec: theme === "ost" || timeLimitSec === "" ? undefined : Number(timeLimitSec),
     };
   }
 
   useEffect(() => {
     if (theme === "stats" && choices.length !== 2) setChoices(["", ""]);
-    if (theme !== "stats" && choices.length < 2) setChoices(["", ""]);
+    if (theme !== "stats" && choices.length < 2 && !freeText) setChoices(["", ""]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme]);
 
@@ -85,7 +99,7 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
   }
 
   function removeChoice(i: number) {
-    if (choices.length <= 2) return;
+    if (choices.length <= (freeText ? 1 : 2)) return;
     setChoices((prev) => prev.filter((_, idx) => idx !== i));
     if (correctIndex >= choices.length - 1) setCorrectIndex(Math.max(0, choices.length - 2));
   }
@@ -113,12 +127,27 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
         mediaUrl: mediaUrl.trim() || undefined,
         notes: parseNotes(notesText),
         audioFile: audioFile.trim() || undefined,
+        acceptedAnswers: freeText ? acceptedAnswers : undefined,
         points,
         ...roundFields(),
       });
       return;
     }
-    onSubmit({ theme: "trivia", prompt: prompt.trim(), choices: trimmedChoices, correctIndex, points, ...roundFields() });
+    onSubmit({
+      theme: "trivia",
+      prompt: prompt.trim(),
+      choices: trimmedChoices,
+      correctIndex,
+      mediaUrl: mediaUrl.trim() || undefined,
+      acceptedAnswers: freeText ? acceptedAnswers : undefined,
+      // Special-manche settings aren't editable here — carried over untouched.
+      category: initial?.metadata?.category,
+      categoryPoints: initial?.metadata?.categoryPoints,
+      bomb: initial?.metadata?.bomb,
+      steal: initial?.metadata?.steal,
+      points,
+      ...roundFields(),
+    });
   }
 
   const canSubmit =
@@ -126,10 +155,31 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
     choices.every((c) => c.trim().length > 0) &&
     (theme !== "stats" || stat.trim().length > 0);
 
+  // The chasse-taupes and the stat slider have no editable content here —
+  // saving them through this form would turn them into trivia questions.
+  if (initial?.theme === "whack" || initial?.theme === "slider") {
+    return (
+      <div className="panel flex w-full flex-col gap-3 rounded-2xl p-4">
+        <p className="text-sm text-ink">
+          {initial.theme === "whack" ? "Chasse-taupes" : "Curseur de stats"} : ces questions se règlent dans{" "}
+          <code>apps/server/prisma/data/yrudGames2.ts</code> (et <code>packages/shared/src</code> pour les règles), pas
+          depuis ce formulaire.
+        </p>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="self-start rounded-lg border border-border px-4 py-2 text-sm text-ink-muted hover:border-border-strong"
+        >
+          Fermer
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="panel flex w-full flex-col gap-3 rounded-2xl p-4">
       <div className="flex flex-wrap gap-2">
-        {(Object.keys(THEME_LABEL) as Exclude<QuestionTheme, "speed">[]).map((t) => (
+        {(Object.keys(THEME_LABEL) as Exclude<QuestionTheme, "speed" | "whack" | "slider">[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -189,7 +239,32 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
             placeholder="Mélodie synthétisée (repli) — ex: 660:150, 990:150, 880:300"
             className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
           />
+
         </>
+      )}
+
+      {theme === "trivia" && (
+        <input
+          value={mediaUrl}
+          onChange={(e) => setMediaUrl(e.target.value)}
+          placeholder="Image (optionnel) — ex: /quizz/images/yg2-navidex-01.jpg"
+          className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+        />
+      )}
+
+      {theme !== "stats" && (
+        <div className="flex flex-col gap-1">
+          <input
+            value={acceptedText}
+            onChange={(e) => setAcceptedText(e.target.value)}
+            placeholder="Réponse libre — réponses acceptées, séparées par des virgules (ex: Jarramanca, Cascarrafa)"
+            className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+          />
+          <p className="text-xs text-ink-muted">
+            Rempli = pas de propositions : les joueurs écrivent leur réponse (accents, majuscules et petites fautes
+            ignorés). Le 1er choix ci-dessous est la réponse affichée à la révélation.
+          </p>
+        </div>
       )}
 
       <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
@@ -214,6 +289,20 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
               className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
             />
           </label>
+          {theme !== "ost" && (
+            <label className="flex w-28 flex-col gap-1 text-xs text-ink-muted">
+              Temps (secondes)
+              <input
+                type="number"
+                min={5}
+                max={300}
+                value={timeLimitSec}
+                placeholder="20"
+                onChange={(e) => setTimeLimitSec(e.target.value === "" ? "" : Number(e.target.value))}
+                className="rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
+              />
+            </label>
+          )}
           <label className="flex w-28 flex-col gap-1 text-xs text-ink-muted">
             Points (bonne réponse)
             <input
@@ -288,7 +377,7 @@ export function QuestionForm({ initial, onSubmit, onCancel, busy, error }: Quest
               placeholder={theme === "stats" ? `Pokémon ${i + 1}` : `Choix ${i + 1}`}
               className="flex-1 rounded-lg border border-border bg-void-deep/60 px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
             />
-            {theme !== "stats" && choices.length > 2 && (
+            {theme !== "stats" && choices.length > (freeText ? 1 : 2) && (
               <button
                 type="button"
                 onClick={() => removeChoice(i)}

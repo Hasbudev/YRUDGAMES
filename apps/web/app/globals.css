@@ -470,3 +470,21 @@ body {
   }
 }
 
+
+@keyframes bomb-tick {
+  0%,
+  100% {
+    transform: scale(1) rotate(-6deg);
+  }
+  50% {
+    transform: scale(1.25) rotate(6deg);
+  }
+}
+
+@keyframes slider-shake {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-4px, 2px); }
+  50% { transform: translate(3px, -2px); }
+  75% { transform: translate(-2px, -3px); }
+  100% { transform: translate(0, 0); }
+}

@@ -125,7 +125,7 @@ export async function getEventByCode(code: string): Promise<EventSummary | null>
 // "speed" is kept here even though the speed round feature was removed — it's
 // still a valid value in the Prisma QuestionTheme enum (legacy rows stay
 // representable) even though nothing creates or plays them anymore.
-export type QuestionTheme = "trivia" | "ost" | "stats" | "speed";
+export type QuestionTheme = "trivia" | "ost" | "stats" | "speed" | "whack" | "slider";
 
 export interface MelodyNoteInput {
   freq: number;
@@ -143,10 +143,25 @@ export interface RoundFields {
   comboThreshold?: number;
   comboBonus?: number;
   allCorrect?: boolean;
+  // Seconds to answer; omitted = the server default (20 s).
+  timeLimitSec?: number;
 }
 
 export type QuestionInput =
-  | ({ theme: "trivia"; prompt: string; choices: string[]; correctIndex: number; mediaUrl?: string; points?: number } & RoundFields)
+  | ({
+      theme: "trivia";
+      prompt: string;
+      choices: string[];
+      correctIndex: number;
+      mediaUrl?: string;
+      acceptedAnswers?: string[];
+      // Special-manche settings, kept as-is when editing (not in the form).
+      category?: string;
+      categoryPoints?: { own: number; other: number };
+      bomb?: { count: number; penalty: number };
+      steal?: number;
+      points?: number;
+    } & RoundFields)
   | ({
       theme: "ost";
       prompt: string;
@@ -155,6 +170,7 @@ export type QuestionInput =
       mediaUrl?: string;
       notes?: MelodyNoteInput[];
       audioFile?: string;
+      acceptedAnswers?: string[];
       points?: number;
     } & RoundFields)
   | ({ theme: "stats"; prompt: string; choices: [string, string]; correctIndex: 0 | 1; stat: string; points?: number } & RoundFields);
@@ -171,6 +187,11 @@ export interface QuestionRecord {
     notes?: MelodyNoteInput[];
     stat?: string;
     audioFile?: string;
+    acceptedAnswers?: string[];
+    category?: string;
+    categoryPoints?: { own: number; other: number };
+    bomb?: { count: number; penalty: number };
+    steal?: number;
   } | null;
   points: number;
   roundIndex: number;
@@ -180,6 +201,7 @@ export interface QuestionRecord {
   comboThreshold: number | null;
   comboBonus: number | null;
   allCorrect: boolean;
+  timeLimitSec: number | null;
 }
 
 class ApiError extends Error {

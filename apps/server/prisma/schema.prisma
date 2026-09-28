@@ -21,6 +21,8 @@ enum QuestionTheme {
   ost
   stats
   speed
+  whack
+  slider
 }
 
 model Event {
@@ -84,6 +86,9 @@ model Question {
   // blankPoints. correctIndex is still required by the schema but is
   // meaningless when this is set.
   allCorrect     Boolean       @default(false)
+  // Seconds players get to answer; null = the server default. The admin can
+  // still override it per manche live from the console.
+  timeLimitSec   Int?
 
   answers AnswerLog[]
 }

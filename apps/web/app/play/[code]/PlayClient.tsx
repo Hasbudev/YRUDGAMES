@@ -18,6 +18,13 @@ import type {
   TeamSheetMember,
 } from "@yrud/shared";
 import { CLAN_REGISTRY, getPrankDefinition, type PrankDefinition } from "@yrud/shared";
+import type { SliderTrick } from "@yrud/shared";
+import { CategoryDraftPanel } from "@/components/special/CategoryDraftPanel";
+import { SliderCard } from "@/components/special/SliderCard";
+import { SliderReveal } from "@/components/special/SliderReveal";
+import { BombBanner } from "@/components/special/BombBanner";
+import { BombExplosion } from "@/components/special/BombExplosion";
+import { StealPanel } from "@/components/special/StealPanel";
 import { createSocket } from "@/lib/socket-client";
 import { mergePlayerJoined } from "@/lib/arena";
 import { ArenaView } from "@/components/yrud/ArenaView";
@@ -36,6 +43,8 @@ import { INTRO_LINES, combatLines, roundIntroLines } from "@/lib/yrudDialogue";
 import { EndGameSummary } from "@/components/summary/EndGameSummary";
 import { GrandFinaleScreen } from "@/components/summary/GrandFinaleScreen";
 import { RevealCard } from "@/components/quiz/RevealCard";
+import { WhackGame } from "@/components/whack/WhackGame";
+import { WhackReveal } from "@/components/whack/WhackReveal";
 
 function storageKey(code: string) {
   return `yrud:playerId:${code}`;
@@ -99,6 +108,8 @@ export function PlayClient({ code }: { code: string }) {
   // contenders — cleared once the battle actually starts (battleSnapshot
   // takes over the display at that point).
   const [pendingCombat, setPendingCombat] = useState<{ player1: string; player2: string } | null>(null);
+  const [sliderTrick, setSliderTrick] = useState<{ trick: SliderTrick; key: number } | null>(null);
+  const [boom, setBoom] = useState<{ clan: string; holderName: string; penalty: number; key: number } | null>(null);
   const { setMood, flash } = useSceneMood();
   const prevPhaseRef = useRef<GamePhase | null>(null);
   const captionCounter = useRef(0);
@@ -223,6 +234,16 @@ export function PlayClient({ code }: { code: string }) {
       setTimeout(() => setBattleFinalWinnerId(winnerId), 3800);
     });
     socket.on("battle:plan", ({ text }) => setBattlePlan(text));
+    socket.on("slider:trick", ({ trick }) => setSliderTrick({ trick, key: Date.now() }));
+    socket.on("bomb:explode", ({ holderId, clan, penalty }) => {
+      const holderName = snapshotRef.current?.players.find((p) => p.id === holderId)?.name ?? "?";
+      setBoom({ clan, holderName, penalty, key: Date.now() });
+    });
+    socket.on("steal:done", ({ thiefId, victimId, amount }) => {
+      const players = snapshotRef.current?.players ?? [];
+      const name = (id: string) => players.find((p) => p.id === id)?.name ?? "?";
+      fireCaption([`${name(thiefId)} vole ${amount} pts à ${name(victimId)} ! Magnifique. Continuez à vous entre-déchirer.`]);
+    });
 
     return () => {
       socket.disconnect();
@@ -262,6 +283,33 @@ export function PlayClient({ code }: { code: string }) {
     if (!socket || !question || selectedIndex !== null) return;
     setSelectedIndex(choiceIndex);
     socket.emit("player:answer", { questionId: question.id, choiceIndex });
+  }
+
+  // Free-text question: the server matches the text, so there's no index to
+  // show — 0 just marks "answered" and locks the input.
+  function answerText(text: string) {
+    if (!socket || !question || selectedIndex !== null) return;
+    setSelectedIndex(0);
+    socket.emit("player:answerText", { questionId: question.id, text });
+  }
+
+  function whack(moleId: number) {
+    if (!socket || !question) return;
+    socket.emit("player:whack", { questionId: question.id, moleId });
+  }
+
+  function stopSlider(value: number) {
+    if (!socket || !question || selectedIndex !== null) return;
+    setSelectedIndex(value);
+    socket.emit("player:answer", { questionId: question.id, choiceIndex: value });
+  }
+
+  function voteCategory(category: string) {
+    socket?.emit("player:voteCategory", { category });
+  }
+
+  function stealFrom(victimId: string) {
+    socket?.emit("player:steal", { victimId }, () => {});
   }
 
   function chooseBattleMove(moveIndex: number) {
@@ -378,6 +426,15 @@ export function PlayClient({ code }: { code: string }) {
       {activeInterference && (
         <InterferenceCutIn label={activeInterference.label} onDone={() => setActiveInterference(null)} />
       )}
+      {boom && (
+        <BombExplosion
+          key={boom.key}
+          clan={boom.clan}
+          holderName={boom.holderName}
+          penalty={boom.penalty}
+          onDone={() => setBoom(null)}
+        />
+      )}
     </>
   );
 
@@ -397,11 +454,36 @@ export function PlayClient({ code }: { code: string }) {
     />
   );
 
+  // Manche 1's category vote, once Yrud opens it (before the manche starts).
+  const draft = snapshot?.categoryDraft;
+  if (
+    snapshot &&
+    draft &&
+    (snapshot.phase === "lobby" || snapshot.phase === "intro" || (snapshot.phase === "roundIntro" && question?.metadata?.category))
+  ) {
+    return (
+      <div className="flex w-full flex-col items-center gap-6">
+        {overlays}
+        {header}
+        <CategoryDraftPanel
+          draft={draft}
+          players={snapshot.players}
+          myPlayerId={playerId}
+          onVote={voteCategory}
+          points={
+            snapshot.roundRules?.categories ? { own: snapshot.roundRules.points[1], other: snapshot.roundRules.points[0] } : undefined
+          }
+        />
+      </div>
+    );
+  }
+
   if (snapshot?.phase === "intro") {
     return (
       <YrudDialogue
         lines={INTRO_LINES}
         waitingLabel="En attente que Yrud lance la Manche 1..."
+        rules={snapshot.roundRules}
         onFinished={() => socket?.emit("player:introSeen")}
       />
     );
@@ -412,6 +494,7 @@ export function PlayClient({ code }: { code: string }) {
       <YrudDialogue
         lines={roundIntroLines(question.roundIndex, question.roundLabel)}
         waitingLabel={`En attente que Yrud lance la Manche ${question.roundIndex}...`}
+        rules={snapshot.roundRules}
         onFinished={() => socket?.emit("player:introSeen")}
       />
     );
@@ -465,6 +548,14 @@ export function PlayClient({ code }: { code: string }) {
   }
 
   const myself = snapshot?.players.find((p) => p.id === playerId);
+  const categoryInfo = (() => {
+    const category = question?.metadata?.category;
+    const worth = question?.metadata?.categoryPoints;
+    if (!category || !worth || !myself) return undefined;
+    const ownerClan = Object.entries(snapshot?.categoryDraft?.assignments ?? {}).find(([, c]) => c === category)?.[0];
+    const mine = ownerClan === myself.clan;
+    return { mine, points: mine ? worth.own : worth.other, owner: CLAN_REGISTRY.find((c) => c.id === ownerClan)?.label };
+  })();
 
   return (
     <div className="flex w-full flex-col items-center gap-8">
@@ -477,14 +568,34 @@ export function PlayClient({ code }: { code: string }) {
           <span className="font-display font-bold text-gold-bright">{myself.points}</span>
         </div>
       )}
+      {snapshot?.bomb && (snapshot.phase === "question" || snapshot.phase === "reveal") && (
+        <BombBanner bomb={snapshot.bomb} players={snapshot.players} myPlayerId={playerId} />
+      )}
+      {snapshot?.steal && snapshot.phase === "reveal" && (
+        <StealPanel steal={snapshot.steal} players={snapshot.players} myPlayerId={playerId} onSteal={stealFrom} />
+      )}
       <div key={snapshot?.phase ?? "waiting"} className="animate-scene-enter flex w-full flex-col items-center">
-        {question && snapshot?.phase === "question" ? (
+        {question && snapshot?.phase === "question" && question.theme === "slider" ? (
+          <SliderCard key={question.id} question={question} stopped={selectedIndex} onStop={stopSlider} trick={sliderTrick} />
+        ) : question && snapshot?.phase === "reveal" && snapshot.lastReveal && question.theme === "slider" ? (
+          <SliderReveal
+            question={question}
+            answer={snapshot.lastReveal.correctIndex}
+            myResult={snapshot.lastReveal.results.find((r) => r.playerId === playerId)}
+          />
+        ) : question && snapshot?.phase === "question" && question.theme === "whack" ? (
+          <WhackGame key={question.id} question={question} onWhack={whack} paused={!!activePrank} />
+        ) : question && snapshot?.phase === "reveal" && snapshot.lastReveal && question.theme === "whack" ? (
+          <WhackReveal results={snapshot.lastReveal.results} players={snapshot.players} myPlayerId={playerId} />
+        ) : question && snapshot?.phase === "question" ? (
           <QuestionCard
             key={question.id}
             question={question}
             disabled={selectedIndex !== null}
             selectedIndex={selectedIndex}
             onAnswer={answer}
+            onAnswerText={answerText}
+            categoryInfo={categoryInfo}
           />
         ) : question && snapshot?.phase === "reveal" && snapshot.lastReveal ? (
           <RevealCard
@@ -499,7 +610,7 @@ export function PlayClient({ code }: { code: string }) {
           <p className="text-sm text-ink-muted">En attente que Yrud lance la prochaine question...</p>
         )}
       </div>
-      {snapshot && <ArenaView snapshot={snapshot} />}
+      {snapshot && <ArenaView snapshot={snapshot} myPlayerId={playerId} />}
     </div>
   );
 }

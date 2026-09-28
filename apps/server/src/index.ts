@@ -82,6 +82,30 @@ io.on("connection", async (socket) => {
     room.submitAnswer(playerId, questionId, choiceIndex);
   });
 
+  socket.on("player:whack", ({ questionId, moleId }) => {
+    const playerId = socket.data.playerId;
+    if (!playerId || typeof moleId !== "number") return;
+    room.whack(playerId, questionId, moleId);
+  });
+
+  socket.on("player:voteCategory", ({ category }) => {
+    const playerId = socket.data.playerId;
+    if (!playerId || typeof category !== "string") return;
+    room.voteCategory(playerId, category);
+  });
+
+  socket.on("player:steal", async ({ victimId }, ack) => {
+    const playerId = socket.data.playerId;
+    if (!playerId) return ack?.({ error: "Rejoins d'abord la partie." });
+    ack?.(await room.stealPoints(playerId, victimId));
+  });
+
+  socket.on("player:answerText", ({ questionId, text }) => {
+    const playerId = socket.data.playerId;
+    if (!playerId || typeof text !== "string") return;
+    room.submitTextAnswer(playerId, questionId, text);
+  });
+
   socket.on("player:introSeen", () => {
     const playerId = socket.data.playerId;
     if (!playerId) return;
@@ -104,6 +128,26 @@ io.on("connection", async (socket) => {
     ack?.(await room.beginQuiz());
   });
 
+  socket.on("admin:startDraft", async ({ order }, ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(await room.startDraft(Array.isArray(order) ? order : []));
+  });
+
+  socket.on("admin:closeVote", async (ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(await room.closeVote());
+  });
+
+  socket.on("admin:sliderTrick", ({ trick }, ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(room.sliderTrick(trick));
+  });
+
+  socket.on("admin:skipSteal", async (ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(await room.skipSteal());
+  });
+
   socket.on("admin:reveal", async (ack) => {
     if (!requireAdmin(ack)) return;
     ack?.(await room.reveal());
@@ -117,6 +161,16 @@ io.on("connection", async (socket) => {
   socket.on("admin:toggleTrap", async (ack) => {
     if (!requireAdmin(ack)) return;
     ack?.(await room.toggleTrap());
+  });
+
+  socket.on("admin:skip", async (ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(await room.skip());
+  });
+
+  socket.on("admin:setTimeLimit", async ({ seconds, roundIndex }, ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(await room.setTimeLimit(seconds, roundIndex));
   });
 
   socket.on("admin:adjustPoints", async ({ playerId, delta }, ack) => {
