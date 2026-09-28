@@ -192,6 +192,8 @@ export interface QuestionRecord {
     categoryPoints?: { own: number; other: number };
     bomb?: { count: number; penalty: number };
     steal?: number;
+    slider?: { pokemon: string; species: string; stat: string; low: number; high: number };
+    whack?: { durationMs: number };
   } | null;
   points: number;
   roundIndex: number;

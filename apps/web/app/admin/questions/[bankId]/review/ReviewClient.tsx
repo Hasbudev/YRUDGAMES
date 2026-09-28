@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { AdminCodeGate } from "@/components/admin/AdminCodeGate";
 import { QuestionForm } from "@/components/admin/QuestionForm";
+import { questionExtras } from "@/lib/questionSummary";
 import { OrnatePanel } from "@/components/quiz/OrnatePanel";
 
 const THEME_LABEL: Record<string, string> = {
@@ -22,6 +23,8 @@ const THEME_LABEL: Record<string, string> = {
   ost: "Devine la musique",
   stats: "Duel de stats",
   speed: "Manche rapide",
+  whack: "Chasse-taupes",
+  slider: "Curseur de stats",
 };
 
 const FALLBACK_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -276,6 +279,12 @@ export function ReviewClient({ bankId }: { bankId: string }) {
                           );
                         })}
                       </div>
+
+                      {questionExtras(current).map((line) => (
+                        <p key={line} className="text-center text-sm text-ink">
+                          {line}
+                        </p>
+                      ))}
 
                       <div className="flex flex-wrap gap-2 text-[11px] text-ink-muted">
                         {current.allCorrect && (

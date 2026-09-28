@@ -4,6 +4,9 @@
 //   npm run yrud2 --workspace=apps/server                         # lists the banks
 //   npm run yrud2 --workspace=apps/server -- --bank "<nom|id>"    # dry run: shows the plan
 //   npm run yrud2 --workspace=apps/server -- --bank "<nom|id>" --apply
+//   npm run yrud2 --workspace=apps/server -- --create "Yrud Games 2" --apply
+//     → creates a brand-new bank holding only the Yrud Games 2 manches (the
+//       safest option: an old bank and its past events stay untouched)
 //
 // Needs DATABASE_URL (point it at production to change the real bank — a dry
 // run is the default so nothing is written by accident). Flags:
@@ -52,6 +55,20 @@ function metadataOf(q: NewQuestion) {
 }
 
 async function main() {
+  const createName = option("create");
+  if (createName) {
+    const total = YRUD_GAMES_2_ROUNDS.reduce((n, r) => n + r.questions.length, 0);
+    console.log(`Nouvelle banque "${createName}" — ${YRUD_GAMES_2_ROUNDS.length} manches, ${total} questions :`);
+    for (const r of YRUD_GAMES_2_ROUNDS) console.log(`  Manche ${r.roundIndex} « ${r.roundLabel} » : ${r.questions.length} questions`);
+    if (!flag("apply")) {
+      console.log("\nEssai à blanc — rien n'a été écrit. Ajoute --apply pour créer la banque.");
+      return;
+    }
+    const bank = await prisma.questionBank.create({ data: { name: createName } });
+    console.log(`Banque créée : ${bank.id}`);
+    args.push("--bank", bank.id);
+  }
+
   const bankArg = option("bank");
   if (!bankArg) {
     const banks = await prisma.questionBank.findMany({ include: { _count: { select: { questions: true } } } });

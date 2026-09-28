@@ -18,12 +18,15 @@ import {
 } from "@/lib/api";
 import { AdminCodeGate } from "@/components/admin/AdminCodeGate";
 import { QuestionForm } from "@/components/admin/QuestionForm";
+import { questionExtras } from "@/lib/questionSummary";
 
 const THEME_LABEL: Record<string, string> = {
   trivia: "Quiz de Yrud",
   ost: "Devine la musique",
   stats: "Duel de stats",
   speed: "Manche rapide",
+  whack: "Chasse-taupes",
+  slider: "Curseur de stats",
 };
 
 const BULK_PLACEHOLDER = `[
@@ -218,6 +221,11 @@ export function QuestionsClient({ bankId }: { bankId: string }) {
                   ))}
                 </ul>
                 {q.metadata?.stat && <p className="text-xs text-ink-muted">Stat : {q.metadata.stat}</p>}
+                {questionExtras(q).map((line) => (
+                  <p key={line} className="text-xs text-ink-muted">
+                    {line}
+                  </p>
+                ))}
               </>
             )}
           </div>

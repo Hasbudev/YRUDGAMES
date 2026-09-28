@@ -58,7 +58,7 @@ export function roundIntroLines(roundIndex: number, roundLabel?: string): string
 // The final battle's two contenders, named live from the top two scorers.
 export function combatLines(player1Name: string, player2Name: string): string[] {
   return [
-    "Le quiz est terminé. Vos petits cerveaux ont fait ce qu'ils ont pu.",
+    "Les épreuves sont terminées. Vos petits cerveaux et vos petits doigts ont fait ce qu'ils ont pu.",
     `Il ne reste que deux prétendants dignes de mon attention : ${player1Name} et ${player2Name}.`,
     "Un seul sortira vivant de mon arène. Enfin... façon de parler.",
     "Que la Bataille Finale commence.",
