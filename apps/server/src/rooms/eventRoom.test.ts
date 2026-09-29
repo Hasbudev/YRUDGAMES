@@ -364,6 +364,30 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     random.mockRestore();
   });
 
+  it("manche 3: a wrong vote risks an explosion that grows every question", async () => {
+    const { bombChance } = await import("@yrud/shared");
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.99); // the roll never hits
+    const qs = Array.from({ length: 3 }, (_, i) =>
+      question(`w${i}`, { choices: ["Vrai", "Faux"], correctIndex: 0, metadata: { bomb: { count: 1, penalty: 10 } } })
+    );
+    const { room, emitted } = setup(qs);
+    await room.addPlayer("b", "Bob", "paldea");
+    room.markPlayerConnected("b");
+    await room.start();
+    await room.beginQuiz();
+
+    expect(room.snapshot().bomb!.heat).toBeCloseTo(bombChance(1)); // 15 %
+    await room.reveal(); // nobody answers → wrong → rolled, survives
+    expect(room.snapshot().bomb!.holderClan).toBe("paldea");
+    expect(room.snapshot().bomb!.heat).toBeCloseTo(bombChance(2)); // 30 %
+    await room.next();
+    await room.reveal();
+    expect(room.snapshot().bomb!.heat).toBeCloseTo(bombChance(3)); // 45 %
+    expect(emitted.some((e) => e.event === "bomb:explode")).toBe(false);
+    expect(bombChance(99)).toBe(0.9);
+    random.mockRestore();
+  });
+
   it("manche 4: after each question, the fastest right answer steals from whoever they pick", async () => {
     const { room } = await room3Clans([
       question("n1", { metadata: { steal: 5 } }),

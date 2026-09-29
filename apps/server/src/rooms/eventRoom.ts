@@ -18,7 +18,7 @@ import type {
   TeamSheetMember,
 } from "@yrud/shared";
 import {
-  BOMB_STRIKES,
+  bombChance,
   SLIDER_TRICKS,
   type SliderTrick,
   CLAN_REGISTRY,
@@ -109,15 +109,16 @@ export class EventRoom {
   private categoryDraft: CategoryDraft | null = null;
   private draftVotes: Record<string, string> = {};
   // Manche 3 — the hot-potato bomb: the clan holding it, the clans' passing
-  // order, how many strikes each bomb takes to go off (secret) and how many
+  // order, how many bombs there are and how many questions the current one
+  // has been through (its explosion risk grows with that).
   // the current one has.
   private bomb: {
     roundIndex: number;
     holderClan: string | null;
     order: string[];
     number: number;
-    fuses: number[];
-    strikes: number;
+    total: number;
+    questionsSurvived: number;
     penalty: number;
     lastOutcome?: BombState["lastOutcome"];
   } | null = null;
@@ -231,9 +232,9 @@ export class EventRoom {
       bomb: this.bomb
         ? {
             holderClan: this.bomb.holderClan,
-            bombNumber: Math.min(this.bomb.number, this.bomb.fuses.length),
-            totalBombs: this.bomb.fuses.length,
-            heat: Math.min(1, this.bomb.strikes / (this.bomb.fuses[this.bomb.number - 1] ?? 1)),
+            bombNumber: Math.min(this.bomb.number, this.bomb.total),
+            totalBombs: this.bomb.total,
+            heat: bombChance(this.bomb.questionsSurvived + 1),
             penalty: this.bomb.penalty,
             lastOutcome: this.bomb.lastOutcome,
           }
@@ -445,14 +446,14 @@ export class EventRoom {
         order,
         holderClan: this.nextClanWithPlayers(order, null),
         number: 1,
-        fuses: Array.from({ length: bombRule.count }, () => BOMB_STRIKES.min + Math.floor(Math.random() * (BOMB_STRIKES.max - BOMB_STRIKES.min + 1))),
-        strikes: 0,
+        total: bombRule.count,
+        questionsSurvived: 0,
         penalty: bombRule.penalty,
       };
     }
     if (this.bomb) {
       this.bomb.lastOutcome = undefined;
-      if (this.bomb.number > this.bomb.fuses.length) {
+      if (this.bomb.number > this.bomb.total) {
         // Every bomb has gone off — the rest of the manche is played by all.
         this.bombRoundsDone.add(this.bomb.roundIndex);
         this.bomb = null;
@@ -810,11 +811,12 @@ export class EventRoom {
     return null;
   }
 
-  // The holding clan's majority answer decides: right → the bomb goes to the
-  // next clan; wrong (or a tie with a wrong answer, or nobody answering) →
-  // it stays and takes a strike, and at its secret number of strikes it goes
-  // off: every player of that clan loses `penalty`, and the next bomb starts
-  // with the next clan.
+  // The holding clan's majority answer decides: right (strictly more votes
+  // for the right answer than for any other) → the bomb goes to the next
+  // clan, safely; wrong (or a tie, or nobody answering) → it stays, and the
+  // explosion is rolled against its risk, which rises with every question
+  // the bomb has been through. Boom: every player of that clan loses the
+  // penalty, and the next bomb starts from the next clan at the lowest risk.
   private tickBomb(question: InternalQuestion, result: RevealResult) {
     const bomb = this.bomb;
     const clan = bomb?.holderClan;
@@ -829,15 +831,18 @@ export class EventRoom {
     const rightVotes = votes.get(question.correctIndex) ?? 0;
     const correct = rightVotes > 0 && [...votes.entries()].every(([choice, n]) => choice === question.correctIndex || n < rightVotes);
 
+    // This question's risk, then one more question survived either way.
+    bomb.questionsSurvived += 1;
+    const risk = bombChance(bomb.questionsSurvived);
+
     if (correct) {
       bomb.holderClan = this.nextClanWithPlayers(bomb.order, clan);
       bomb.lastOutcome = { clan, correct: true, votes: total, majorityVotes: rightVotes, passedTo: bomb.holderClan ?? undefined };
       return;
     }
 
-    bomb.strikes += 1;
     bomb.lastOutcome = { clan, correct: false, votes: total, majorityVotes: best };
-    if (bomb.strikes < bomb.fuses[bomb.number - 1]) return;
+    if (Math.random() >= risk) return;
 
     // Every player of the clan loses the full penalty.
     const share = bomb.penalty;
@@ -855,8 +860,8 @@ export class EventRoom {
     this.io.to(this.socketRoom).emit("bomb:explode", { clan, penalty: share, affectedIds });
     bomb.lastOutcome = { ...bomb.lastOutcome, exploded: true };
     bomb.number += 1;
-    bomb.strikes = 0;
-    bomb.holderClan = bomb.number > bomb.fuses.length ? null : this.nextClanWithPlayers(bomb.order, clan);
+    bomb.questionsSurvived = 0;
+    bomb.holderClan = bomb.number > bomb.total ? null : this.nextClanWithPlayers(bomb.order, clan);
     if (bomb.holderClan) bomb.lastOutcome.passedTo = bomb.holderClan;
   }
 

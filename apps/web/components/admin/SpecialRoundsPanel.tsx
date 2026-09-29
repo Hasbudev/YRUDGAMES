@@ -118,7 +118,7 @@ export function SpecialRoundsPanel({ snapshot, onStartDraft, onCloseVote, onSkip
       {snapshot.bomb && (
         <p className="pl-5 text-ink">
           💣 Bombe {snapshot.bomb.bombNumber}/{snapshot.bomb.totalBombs} — tenue par le clan{" "}
-          <b>{snapshot.bomb.holderClan ? clanLabel(snapshot.bomb.holderClan) : "—"}</b> · mèche{" "}
+          <b>{snapshot.bomb.holderClan ? clanLabel(snapshot.bomb.holderClan) : "—"}</b> · risque d&apos;explosion{" "}
           {Math.round(snapshot.bomb.heat * 100)} %
         </p>
       )}

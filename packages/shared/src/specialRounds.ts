@@ -48,7 +48,8 @@ export interface BombState {
   holderClan: string | null;
   bombNumber: number; // 1-based
   totalBombs: number;
-  // 0 → 1 as the strikes pile up (drives the ticking speed / gauge).
+  // The explosion risk for the coming question, 0 → 1 (drives the ticking
+  // speed and the gauge).
   heat: number;
   penalty: number;
   // What happened on the question just revealed, for the reveal screen.
@@ -63,8 +64,16 @@ export interface BombState {
   };
 }
 
-// How many wrong answers a bomb takes to go off (secret, drawn per bomb).
-export const BOMB_STRIKES = { min: 1, max: 3 };
+// The explosion risk rises with every question the bomb survives: `start`
+// on its first question, +`step` per question after that, capped at `max`.
+// It's rolled when the holding clan votes wrong (a right vote passes the
+// bomb on safely — but the risk keeps rising for the next clan).
+export const BOMB_CHANCE = { start: 0.15, step: 0.15, max: 0.9 };
+
+// Explosion risk on a bomb's n-th question (1-based).
+export function bombChance(question: number): number {
+  return Math.min(BOMB_CHANCE.max, BOMB_CHANCE.start + BOMB_CHANCE.step * (question - 1));
+}
 
 // Manche 4 — each question's fastest right answer steals points from
 // whoever that player picks.

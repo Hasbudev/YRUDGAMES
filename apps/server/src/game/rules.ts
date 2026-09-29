@@ -47,7 +47,7 @@ export function summarizeRound(
       { icon: "✔", label: "Le clan vote juste : la bombe passe au clan suivant", value: "ouf", tone: "neutral" },
       {
         icon: "💥",
-        label: `Le clan vote faux : la bombe reste et chauffe… à l'explosion (${bomb.count} bombes), chaque joueur du clan perd`,
+        label: `Le clan vote faux : la bombe reste, et elle peut exploser — un risque qui grimpe à chaque question (${bomb.count} bombes). Boum : chaque joueur du clan perd`,
         value: `−${bomb.penalty} pts`,
         tone: "loss",
       }
