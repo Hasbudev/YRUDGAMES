@@ -35,7 +35,11 @@ export function ArenaView({ snapshot, myPlayerId }: ArenaViewProps) {
         </div>
         {snapshot.phase === "question" && (
           <span className="text-xs text-ink-muted">
-            {answeredSet.size} / {playerCount} ont répondu
+            {answeredSet.size} /{" "}
+            {snapshot.answeringClan
+              ? snapshot.players.filter((p) => p.clan === snapshot.answeringClan).length
+              : playerCount}{" "}
+            ont répondu
           </span>
         )}
         <div className="flex overflow-hidden rounded-lg border border-border text-xs font-semibold">

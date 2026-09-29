@@ -28,7 +28,7 @@ export function SpecialRoundsPanel({ snapshot, onStartDraft, onCloseVote, onSkip
   const nameOf = (id: string | null) => snapshot.players.find((p) => p.id === id)?.name ?? "?";
 
   const sliderLive = snapshot.phase === "question" && snapshot.question?.theme === "slider";
-  if (!showDraft && !snapshot.bomb && !snapshot.steal && !sliderLive) return null;
+  if (!showDraft && !snapshot.bomb && !snapshot.steal && !sliderLive && !snapshot.answeringClan) return null;
 
   return (
     <div className="panel-ornate flex w-full flex-col gap-4 rounded-2xl p-4 text-sm">
@@ -80,6 +80,11 @@ export function SpecialRoundsPanel({ snapshot, onStartDraft, onCloseVote, onSkip
               </button>
             </div>
           )}
+          {draft && draft.turn >= draft.order.length && (
+            <p className="text-ink-muted">
+              La manche se jouera clan par clan, dans l&apos;ordre ci-dessous.
+            </p>
+          )}
           {draft && Object.keys(draft.assignments).length > 0 && (
             <ul className="flex flex-col gap-1 text-ink">
               {Object.entries(draft.assignments).map(([clan, cat]) => (
@@ -90,6 +95,13 @@ export function SpecialRoundsPanel({ snapshot, onStartDraft, onCloseVote, onSkip
             </ul>
           )}
         </div>
+      )}
+
+      {snapshot.answeringClan && (
+        <p className="pl-5 text-ink">
+          🏳 Au tour de <b className="text-gold-bright">{clanLabel(snapshot.answeringClan)}</b> — seuls ses joueurs
+          répondent, les autres regardent.
+        </p>
       )}
 
       {sliderLive && (

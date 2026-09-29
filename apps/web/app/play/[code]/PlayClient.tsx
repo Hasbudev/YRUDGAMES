@@ -471,7 +471,7 @@ export function PlayClient({ code }: { code: string }) {
           myPlayerId={playerId}
           onVote={voteCategory}
           points={
-            snapshot.roundRules?.categories ? { own: snapshot.roundRules.points[1], other: snapshot.roundRules.points[0] } : undefined
+            snapshot.roundRules?.categories ? snapshot.roundRules.points[1] : undefined
           }
         />
       </div>
@@ -552,9 +552,11 @@ export function PlayClient({ code }: { code: string }) {
     const category = question?.metadata?.category;
     const worth = question?.metadata?.categoryPoints;
     if (!category || !worth || !myself) return undefined;
-    const ownerClan = Object.entries(snapshot?.categoryDraft?.assignments ?? {}).find(([, c]) => c === category)?.[0];
+    const ownerClan =
+      snapshot?.answeringClan ??
+      Object.entries(snapshot?.categoryDraft?.assignments ?? {}).find(([, c]) => c === category)?.[0];
     const mine = ownerClan === myself.clan;
-    return { mine, points: mine ? worth.own : worth.other, owner: CLAN_REGISTRY.find((c) => c.id === ownerClan)?.label };
+    return { mine, points: worth.own, owner: CLAN_REGISTRY.find((c) => c.id === ownerClan)?.label };
   })();
 
   return (
@@ -591,7 +593,8 @@ export function PlayClient({ code }: { code: string }) {
           <QuestionCard
             key={question.id}
             question={question}
-            disabled={selectedIndex !== null}
+            // Manche 1: only the clan whose turn it is may answer.
+            disabled={selectedIndex !== null || categoryInfo?.mine === false}
             selectedIndex={selectedIndex}
             onAnswer={answer}
             onAnswerText={answerText}

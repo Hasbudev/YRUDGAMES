@@ -263,10 +263,15 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     return ctx;
   }
 
-  it("manche 1: clans vote a category in order, then score 6 on their own and 3 elsewhere", async () => {
+  it("manche 1: clans vote a category, then play it one clan at a time while the others watch", async () => {
     const cat = (id: string, category: string) =>
       question(id, { points: 3, metadata: { category, categoryPoints: { own: 6, other: 3 } } });
-    const { room } = await room3Clans([cat("q1", "Force Z"), cat("q2", "Dynamax"), cat("q3", "1G")]);
+    const { room, lastQuestionNew } = await room3Clans([
+      cat("z1", "Force Z"),
+      cat("z2", "Force Z"),
+      cat("d1", "Dynamax"),
+      cat("g1", "1G"),
+    ]);
 
     expect(await room.beginQuiz()).toEqual({ error: expect.stringContaining("catégorie") });
     await room.startDraft(["yrud", "paldea", "rapepolofia"]);
@@ -275,13 +280,24 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     room.voteCategory("b", "Force Z"); // paldea → decided; rapepolofia gets what's left
     const draft = room.snapshot().categoryDraft!;
     expect(draft.assignments).toEqual({ yrud: "1G", paldea: "Force Z", rapepolofia: "Dynamax" });
-    expect(draft.turn).toBe(3);
 
+    // Played in picking order: yrud's 1G, then paldea's Force Z, then rapepolofia's Dynamax.
     expect(await room.beginQuiz()).toEqual({ ok: true });
-    for (const id of ["a", "b", "c"]) room.submitAnswer(id, "q1", 0); // Force Z = paldea's
-    await room.reveal();
-    const byId = Object.fromEntries(room.snapshot().lastReveal!.results.map((r) => [r.playerId, r.points]));
-    expect(byId).toEqual({ a: 3, b: 6, c: 3 });
+    const played: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const q = lastQuestionNew();
+      played.push(q.id);
+      expect(room.snapshot().answeringClan).toBe({ g1: "yrud", z1: "paldea", z2: "paldea", d1: "rapepolofia" }[q.id as string]);
+      for (const id of ["a", "b", "c"]) room.submitAnswer(id, q.id, 0);
+      // Only the clan whose turn it is gets its answer in.
+      expect(room.snapshot().answeredPlayerIds).toHaveLength(1);
+      await room.reveal();
+      expect(room.snapshot().lastReveal!.results).toHaveLength(1);
+      if (i < 3) await room.next();
+    }
+    expect(played).toEqual(["g1", "z1", "z2", "d1"]);
+    const pts = Object.fromEntries(room.snapshot().players.map((p) => [p.id, p.points]));
+    expect(pts).toEqual({ c: 6, b: 12, a: 6 });
   });
 
   it("manche 2: the slider scores by distance to the real max", async () => {

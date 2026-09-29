@@ -35,8 +35,9 @@ export interface QuestionMetadata {
   // whack theme — how long the game lasts, plus the board's seed, which the
   // server only picks (and adds) when the game actually starts.
   whack?: { durationMs: number; seed?: number };
-  // Manche 1 — the question's category, and what a correct answer is worth
-  // to a player whose clan picked it vs. anyone else.
+  // Manche 1 — the question's category. Only the clan that picked it
+  // answers (the others watch); a right answer is worth categoryPoints.own.
+  // `other` is kept for older banks and unused.
   category?: string;
   categoryPoints?: { own: number; other: number };
   // slider theme — what to show and the range the cursor sweeps.
@@ -157,6 +158,9 @@ export interface ArenaSnapshot {
   // once the quiz is over.
   roundRules?: RoundRules;
   categoryDraft?: CategoryDraft;
+  // Manche 1 — the clan whose turn it is (only its players may answer the
+  // live question; everyone else watches). Absent outside that manche.
+  answeringClan?: string;
   bomb?: BombState;
   steal?: StealState;
   // Whether Yrud has armed the currently-live question as a trap — surfaced

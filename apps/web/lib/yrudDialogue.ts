@@ -11,6 +11,7 @@ export const INTRO_LINES = [
   "Ce soir, dans mon arène, vous allez souffrir pour mon divertissement personnel.",
   "Des quiz, des bagarres, des taunts humiliants en direct... le programme complet.",
   "Première épreuve : le Quizz mécaniques. Chaque clan choisira sa catégorie, en commençant par le plus minable.",
+  "Puis chacun passera à son tour, seul, sous les yeux des autres. Aucune excuse possible.",
   "Inclinez-vous, ou tremblez. Les deux me conviennent très bien.",
   "Que les Yrud Games... commencent.",
 ];

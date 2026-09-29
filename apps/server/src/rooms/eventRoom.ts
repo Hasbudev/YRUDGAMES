@@ -216,6 +216,7 @@ export class EventRoom {
       roundRules: this.roundRules(),
       trapActive: this.state.trapActive,
       categoryDraft: this.categoryDraft ?? undefined,
+      answeringClan: this.answeringClan(),
       bomb: this.bomb
         ? {
             holderId: this.bomb.holderId,
@@ -320,6 +321,7 @@ export class EventRoom {
   submitAnswer(playerId: string, questionId: string, choiceIndex: number) {
     const question = engine.currentQuestion(this.state);
     if (!question || question.id !== questionId) return;
+    if (!this.canAnswer(playerId, question)) return; // manche 1: not this clan's turn
     if (playerId in this.state.answers) return; // already answered — nothing changes
     const slider = question.theme === "slider" ? question.metadata?.slider : undefined;
     if (slider && (!Number.isInteger(choiceIndex) || choiceIndex < slider.low || choiceIndex > slider.high)) return;
@@ -455,7 +457,7 @@ export class EventRoom {
             this.state,
             Object.fromEntries(Object.entries(game.hits).map(([id, hits]) => [id, whackScore(game.schedule, hits)]))
           )
-        : engine.reveal(this.state, this.categoryPointsFor(question));
+        : engine.reveal(this.state, this.categoryPointsFor(question), this.participantFilter(question));
     this.whackGame = null;
     this.state = nextState;
     this.lastReveal = result;
@@ -631,12 +633,56 @@ export class EventRoom {
     return !!this.categoryDraft && this.categoryDraft.turn >= this.categoryDraft.order.length;
   }
 
-  private categoryPointsFor(question: InternalQuestion | undefined) {
+  // The clan that picked this category question's category — the only one
+  // answering it. undefined for any other question (everyone plays).
+  private ownerClan(question: InternalQuestion | undefined): string | undefined {
     const category = question?.metadata?.category;
+    if (!category || !this.categoryDraft) return undefined;
+    return Object.entries(this.categoryDraft.assignments).find(([, c]) => c === category)?.[0];
+  }
+
+  private answeringClan(): string | undefined {
+    if (this.state.phase !== "question" && this.state.phase !== "reveal") return undefined;
+    return this.ownerClan(engine.currentQuestion(this.state));
+  }
+
+  private canAnswer(playerId: string, question: InternalQuestion): boolean {
+    const owner = this.ownerClan(question);
+    return !owner || this.clanOf(playerId) === owner;
+  }
+
+  private participantFilter(question: InternalQuestion | undefined) {
+    const owner = this.ownerClan(question);
+    return owner ? (playerId: string) => this.clanOf(playerId) === owner : undefined;
+  }
+
+  private categoryPointsFor(question: InternalQuestion | undefined) {
     const worth = question?.metadata?.categoryPoints;
-    if (!category || !worth) return undefined;
-    return (playerId: string) =>
-      this.categoryDraft?.assignments[this.clanOf(playerId)] === category ? worth.own : worth.other;
+    if (!question?.metadata?.category || !worth) return undefined;
+    return () => worth.own;
+  }
+
+  // Once every clan has its category, manche 1 is played clan by clan in the
+  // picking order: that clan's questions first, then the next clan's...
+  // Only the category questions move, and they keep their block's place.
+  private orderCategoryQuestions() {
+    const draft = this.categoryDraft;
+    if (!draft || draft.turn < draft.order.length) return;
+    const questions = this.state.questions;
+    const slots = questions.map((q, i) => (q.metadata?.category ? i : -1)).filter((i) => i >= 0);
+    if (slots.length === 0) return;
+    const rank = (category: string | undefined) => {
+      const clanIndex = draft.order.findIndex((clan) => draft.assignments[clan] === category);
+      return clanIndex === -1 ? draft.order.length : clanIndex;
+    };
+    const sorted = slots
+      .map((i) => questions[i])
+      .map((q, originalPos) => ({ q, originalPos }))
+      .sort((a, b) => rank(a.q.metadata?.category) - rank(b.q.metadata?.category) || a.originalPos - b.originalPos)
+      .map((x) => x.q);
+    const next = [...questions];
+    slots.forEach((slot, k) => (next[slot] = sorted[k]));
+    this.state = { ...this.state, questions: next };
   }
 
   async startDraft(order: string[]): Promise<{ ok: true } | { error: string }> {
@@ -710,13 +756,18 @@ export class EventRoom {
   // or a clan with nobody here to vote.
   private settleDraftTurns() {
     const draft = this.categoryDraft;
-    if (!draft || draft.turn >= draft.order.length) return;
+    if (!draft) return;
+    if (draft.turn >= draft.order.length) {
+      this.orderCategoryQuestions();
+      return;
+    }
     const remaining = draft.categories.filter((c) => !Object.values(draft.assignments).includes(c));
     const clan = draft.order[draft.turn];
     const present = this.state.playerOrder.some((id) => this.clanOf(id) === clan && this.connectedPlayers.has(id));
     if (remaining.length <= 1 || !present) {
       if (remaining.length === 0) {
         this.categoryDraft = { ...draft, turn: draft.order.length };
+        this.orderCategoryQuestions();
         return;
       }
       this.resolveDraftTurn();

@@ -31,6 +31,7 @@ import { EndGameSummary } from "@/components/summary/EndGameSummary";
 import { GrandFinaleScreen } from "@/components/summary/GrandFinaleScreen";
 import { RevealCard } from "@/components/quiz/RevealCard";
 import type { SliderTrick } from "@yrud/shared";
+import { CLAN_REGISTRY } from "@yrud/shared";
 import { CategoryDraftPanel } from "@/components/special/CategoryDraftPanel";
 import { SliderCard } from "@/components/special/SliderCard";
 import { SliderReveal } from "@/components/special/SliderReveal";
@@ -239,7 +240,7 @@ export function WatchClient({ code }: { code: string }) {
           draft={snapshot.categoryDraft}
           players={snapshot.players}
           points={
-            snapshot.roundRules?.categories ? { own: snapshot.roundRules.points[1], other: snapshot.roundRules.points[0] } : undefined
+            snapshot.roundRules?.categories ? snapshot.roundRules.points[1] : undefined
           }
         />
       </div>
@@ -317,7 +318,22 @@ export function WatchClient({ code }: { code: string }) {
         ) : question && snapshot.phase === "reveal" && snapshot.lastReveal && question.theme === "whack" ? (
           <WhackReveal results={snapshot.lastReveal.results} players={snapshot.players} />
         ) : question && snapshot.phase === "question" ? (
-          <QuestionCard key={question.id} question={question} disabled selectedIndex={null} onAnswer={() => {}} />
+          <QuestionCard
+            key={question.id}
+            question={question}
+            disabled
+            selectedIndex={null}
+            onAnswer={() => {}}
+            categoryInfo={
+              snapshot.answeringClan && question.metadata?.categoryPoints
+                ? {
+                    mine: false,
+                    points: question.metadata.categoryPoints.own,
+                    owner: CLAN_REGISTRY.find((c) => c.id === snapshot.answeringClan)?.label,
+                  }
+                : undefined
+            }
+          />
         ) : question && snapshot.phase === "reveal" && snapshot.lastReveal ? (
           <RevealCard
             key={`reveal-${question.id}`}

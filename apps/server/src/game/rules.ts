@@ -23,8 +23,13 @@ export function summarizeRound(
   const categoryPoints = inRound.find((q) => q.metadata?.categoryPoints)?.metadata?.categoryPoints;
   if (categoryPoints) {
     specialRules.push(
-      { icon: "🏳", label: "Bonne réponse dans la catégorie de ton clan", value: `+${categoryPoints.own} pts`, tone: "gain" },
-      { icon: "⚔", label: "Bonne réponse dans la catégorie d'un autre clan", value: `+${categoryPoints.other} pts`, tone: "gain" }
+      {
+        icon: "🏳",
+        label: "Chaque clan joue à son tour les questions de la catégorie qu'il a choisie",
+        value: `+${categoryPoints.own} pts`,
+        tone: "gain",
+      },
+      { icon: "👀", label: "Pendant ce temps, les autres clans regardent", value: "—", tone: "neutral" }
     );
   }
   if (inRound.some((q) => q.theme === "slider")) {
@@ -47,7 +52,7 @@ export function summarizeRound(
     q.theme === "slider"
       ? SLIDER_TIERS.map((t) => t.points)
       : q.metadata?.categoryPoints
-        ? [q.metadata.categoryPoints.other, q.metadata.categoryPoints.own]
+        ? [q.metadata.categoryPoints.own]
         : [q.points];
   const comboQuestion = inRound.find((q) => q.comboThreshold && q.comboBonus);
 

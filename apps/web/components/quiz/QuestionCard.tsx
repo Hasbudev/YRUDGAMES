@@ -16,7 +16,8 @@ interface QuestionCardProps {
   onAnswer: (choiceIndex: number) => void;
   // Free-text question (metadata.freeText) — the typed answer.
   onAnswerText?: (text: string) => void;
-  // Manche 1 — whose category this question is, from the viewer's side.
+  // Manche 1 — whose turn this question is, from the viewer's side (only
+  // that clan answers; everyone else watches).
   categoryInfo?: { owner?: string; mine: boolean; points: number };
 }
 
@@ -66,8 +67,8 @@ export function QuestionCard({ question, disabled, selectedIndex, onAnswer, onAn
             {question.metadata.category}
             {categoryInfo &&
               (categoryInfo.mine
-                ? ` · ta catégorie · +${categoryInfo.points} pts`
-                : ` · catégorie ${categoryInfo.owner ? `de ${categoryInfo.owner}` : "libre"} · +${categoryInfo.points} pts`)}
+                ? ` · à ton clan de jouer · +${categoryInfo.points} pts`
+                : ` · au tour de ${categoryInfo.owner ?? "un autre clan"} — tu regardes`)}
           </p>
         )}
         {question.theme !== "ost" && <TimerBar startedAt={question.startedAt} timeLimitMs={question.timeLimitMs} />}

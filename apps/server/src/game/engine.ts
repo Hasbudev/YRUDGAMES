@@ -117,11 +117,14 @@ export function scoreAnswer(
 
 // Everyone still in the event answers every question — nobody is ever
 // knocked out, so this always covers the full roster.
-// `pointsFor` lets the room change what a correct answer is worth per player
-// (manche 1: 6 on your clan's category, 3 on another's).
+// `pointsFor` lets the room change what a correct answer is worth per player,
+// and `isParticipant` leave some players out of the question entirely —
+// manche 1, where only one clan plays each question: the others' points and
+// streaks don't move, and they get no result line (they were watching).
 export function reveal(
   state: GameState,
-  pointsFor?: (playerId: string) => number | undefined
+  pointsFor?: (playerId: string) => number | undefined,
+  isParticipant?: (playerId: string) => boolean
 ): { state: GameState; result: RevealResult } {
   const question = state.questions[state.questionIndex];
   const players: Record<string, InternalPlayer> = { ...state.players };
@@ -129,6 +132,7 @@ export function reveal(
   const trap = state.trapActive;
 
   for (const playerId of state.playerOrder) {
+    if (isParticipant && !isParticipant(playerId)) continue;
     const player = players[playerId];
     const choiceIndex = state.answers[playerId] ?? null;
     const worth = pointsFor?.(playerId);

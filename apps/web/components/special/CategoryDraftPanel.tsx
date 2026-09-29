@@ -12,7 +12,8 @@ interface CategoryDraftPanelProps {
   // Set for a player: lets them vote during their clan's turn.
   myPlayerId?: string;
   onVote?: (category: string) => void;
-  points?: { own: number; other: number };
+  // What a right answer is worth to the clan playing its category.
+  points?: number;
 }
 
 // Manche 1 — the clans pick their category one after the other (last in the
@@ -33,12 +34,16 @@ export function CategoryDraftPanel({ draft, players, myPlayerId, onVote, points 
         <div className="text-center">
           <p className="font-display text-xs font-bold uppercase tracking-[0.3em] text-gold-dim">Manche 1</p>
           <h2 className="font-display text-glow-gold text-2xl font-black text-gold-bright">Choix des catégories</h2>
-          {points && (
-            <p className="mt-1 text-sm text-ink-muted">
-              Bonne réponse dans la catégorie de ton clan : <b className="text-emerald-300">+{points.own}</b> · dans
-              celle d&apos;un autre : <b className="text-gold-bright">+{points.other}</b>
-            </p>
-          )}
+          <p className="mt-1 text-sm text-ink-muted">
+            Chaque clan jouera seul les questions de sa catégorie, dans cet ordre
+            {points ? (
+              <>
+                {" "}
+                (<b className="text-emerald-300">+{points}</b> par bonne réponse)
+              </>
+            ) : null}
+            . Les autres clans regardent.
+          </p>
         </div>
 
         <ol className="flex flex-col gap-2">
