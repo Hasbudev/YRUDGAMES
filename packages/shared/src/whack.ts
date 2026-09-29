@@ -20,7 +20,7 @@ export interface MoleKindDef {
 }
 
 // Tapping Rudy multiplies every gain for a while (not Tchoupi's loss).
-export const RUDY_BOOST_MULTIPLIER = 1.1;
+export const RUDY_BOOST_MULTIPLIER = 2;
 export const RUDY_BOOST_MS = 6700;
 // "×1,1" — the multiplier as shown on screen.
 export const RUDY_BOOST_LABEL = `×${String(RUDY_BOOST_MULTIPLIER).replace(".", ",")}`;

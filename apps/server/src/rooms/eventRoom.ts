@@ -839,10 +839,14 @@ export class EventRoom {
     bomb.lastOutcome = { clan, correct: false, votes: total, majorityVotes: best };
     if (bomb.strikes < bomb.fuses[bomb.number - 1]) return;
 
+    // The penalty is shared by the clan's voters on this question: every
+    // player of the clan loses penalty ÷ voters (nobody voted → the full
+    // penalty) — the more of them answer, the softer the blast.
+    const share = Math.round(bomb.penalty / Math.max(1, total));
     const affectedIds = this.state.playerOrder.filter((id) => this.clanOf(id) === clan);
     for (const id of affectedIds) {
       const player = this.state.players[id];
-      const points = Math.max(0, player.points - bomb.penalty);
+      const points = Math.max(0, player.points - share);
       this.state = { ...this.state, players: { ...this.state.players, [id]: { ...player, points } } };
       const entry = result.results.find((r) => r.playerId === id);
       if (entry) {
@@ -850,7 +854,7 @@ export class EventRoom {
         entry.points = points;
       }
     }
-    this.io.to(this.socketRoom).emit("bomb:explode", { clan, penalty: bomb.penalty, affectedIds });
+    this.io.to(this.socketRoom).emit("bomb:explode", { clan, penalty: share, affectedIds });
     bomb.lastOutcome = { ...bomb.lastOutcome, exploded: true };
     bomb.number += 1;
     bomb.strikes = 0;

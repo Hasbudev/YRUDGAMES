@@ -40,10 +40,10 @@ describe("whackScore", () => {
     expect(whackScore(board, [{ moleId: 5, atMs: 100 }])).toBe(0);
   });
 
-  it("Rudy boosts gains ×1.1 for 6.7 s, but not Tchoupi's loss", () => {
-    expect(RUDY_BOOST_MULTIPLIER).toBe(1.1);
-    // Remysse's 5 boosted: 5.5 → 6.
-    expect(whackScore(board, [{ moleId: 3, atMs: 1000 }, { moleId: 4, atMs: 2000 }])).toBe(6);
+  it("Rudy boosts gains ×2 for 6.7 s, but not Tchoupi's loss", () => {
+    expect(RUDY_BOOST_MULTIPLIER).toBe(2);
+    // Remysse's 5 boosted: 10.
+    expect(whackScore(board, [{ moleId: 3, atMs: 1000 }, { moleId: 4, atMs: 2000 }])).toBe(10);
     // Tchoupi's −5 is not boosted.
     expect(whackScore(board, [{ moleId: 3, atMs: 1000 }, { moleId: 6, atMs: 2000 }])).toBe(-5);
     expect(whackScore(board, [{ moleId: 3, atMs: 0 }, { moleId: 4, atMs: RUDY_BOOST_MS + 1 }])).toBe(5);

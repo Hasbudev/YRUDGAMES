@@ -8,7 +8,8 @@ import type { BattleChoiceRequest, BattleLogEntry, BattleSnapshot, InterferenceT
 import type { EventSummary } from "./summary-types";
 
 export interface ServerToClientEvents {
-  // Manche 3 — the bomb went off on its holder's clan.
+  // Manche 3 — the bomb went off on its holder's clan; `penalty` is what
+  // each of its players actually lost (the bomb's penalty ÷ the clan's voters).
   "bomb:explode": (payload: { clan: string; penalty: number; affectedIds: string[] }) => void;
   // Manche 4 — a winner took their points.
   "steal:done": (payload: { thiefId: string; victimId: string; amount: number }) => void;

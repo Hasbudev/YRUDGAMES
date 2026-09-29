@@ -28,7 +28,7 @@ const ROUND_INTRO_LINES: Record<number, string[]> = {
   3: [
     "Bien. La marge d'erreur s'est réduite. L'espoir aussi.",
     "Manche 3 : Vrai ou Faux. Et pour pimenter, une bombe. Seul le clan qui la tient répond, et c'est la majorité qui tranche.",
-    "Juste, elle passe au clan suivant. Faux, elle reste et chauffe. Quand elle explose, tout le clan perd 20 points. Trois bombes. Amusez-moi.",
+    "Juste, elle passe au clan suivant. Faux, elle reste et chauffe. Quand elle explose, elle coûte 20 points, divisés par le nombre de votants. Votez tous, ou souffrez tous.",
   ],
   4: [
     "Vous avez parcouru toutes ces routes, paraît-il. Prouvez-le.",
