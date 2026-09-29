@@ -41,15 +41,30 @@ export interface CategoryDraft {
   voterIds: string[];
 }
 
-// Manche 3 — the hot-potato bomb.
+// Manche 3 — the hot-potato bomb. A clan holds it; only that clan answers
+// the question, and its majority answer decides: right passes the bomb to
+// the next clan, wrong keeps it and brings it one strike closer to going off.
 export interface BombState {
-  holderId: string | null;
+  holderClan: string | null;
   bombNumber: number; // 1-based
   totalBombs: number;
-  // 0 → 1 as the fuse burns down (drives the ticking speed on screen).
+  // 0 → 1 as the strikes pile up (drives the ticking speed / gauge).
   heat: number;
   penalty: number;
+  // What happened on the question just revealed, for the reveal screen.
+  lastOutcome?: {
+    clan: string;
+    correct: boolean;
+    // Votes cast in that clan, and how many went to the answer it kept.
+    votes: number;
+    majorityVotes: number;
+    passedTo?: string;
+    exploded?: boolean;
+  };
 }
+
+// How many wrong answers a bomb takes to go off (secret, drawn per bomb).
+export const BOMB_STRIKES = { min: 1, max: 3 };
 
 // Manche 4 — the manche's winner steals points from whoever they pick.
 export interface StealState {

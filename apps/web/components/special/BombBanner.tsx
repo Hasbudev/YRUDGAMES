@@ -2,13 +2,18 @@
 
 import { CLAN_REGISTRY, type BombState, type PublicPlayer } from "@yrud/shared";
 
-// Manche 3 — who holds the bomb. It ticks faster and faster as its (secret)
-// fuse burns down.
+const clanDef = (id: string | null | undefined) => CLAN_REGISTRY.find((c) => c.id === id);
+
+// Manche 3 — which clan holds the bomb (only it answers), how close it is to
+// going off, and at reveal what that clan's vote did with it.
 export function BombBanner({ bomb, players, myPlayerId }: { bomb: BombState; players: PublicPlayer[]; myPlayerId?: string }) {
-  const holder = players.find((p) => p.id === bomb.holderId);
-  const clan = CLAN_REGISTRY.find((c) => c.id === holder?.clan);
-  const mine = !!myPlayerId && bomb.holderId === myPlayerId;
+  const myClan = players.find((p) => p.id === myPlayerId)?.clan;
+  const holder = clanDef(bomb.holderClan);
+  const mine = !!myClan && bomb.holderClan === myClan;
   const beat = Math.max(0.2, 1.2 - bomb.heat * 1.0);
+  const outcome = bomb.lastOutcome;
+  const outcomeClan = clanDef(outcome?.clan);
+  const passedTo = clanDef(outcome?.passedTo);
 
   return (
     <div
@@ -20,10 +25,29 @@ export function BombBanner({ bomb, players, myPlayerId }: { bomb: BombState; pla
         💣
       </span>
       <div className="flex-1">
-        <p className="font-display font-black text-ink">
-          {mine ? "C'EST TOI QUI AS LA BOMBE !" : `${holder?.name ?? "Personne"} tient la bombe`}
-          {clan && !mine && <span style={{ color: clan.color }}> ({clan.label})</span>}
-        </p>
+        {outcome ? (
+          <p className="font-display font-black text-ink">
+            <span style={{ color: outcomeClan?.color }}>{outcomeClan?.label ?? outcome.clan}</span>{" "}
+            {outcome.votes === 0
+              ? "n'a pas répondu"
+              : `a voté ${outcome.correct ? "juste" : "faux"} (${outcome.majorityVotes}/${outcome.votes} voix)`}
+            {outcome.exploded
+              ? " — BOUM !"
+              : outcome.correct
+                ? passedTo
+                  ? ` → la bombe passe à ${passedTo.label}`
+                  : ""
+                : " → la bombe reste et chauffe !"}
+          </p>
+        ) : (
+          <p className="font-display font-black text-ink">
+            {mine ? "TON CLAN A LA BOMBE — votez juste pour la refiler !" : (
+              <>
+                Le clan <span style={{ color: holder?.color }}>{holder?.label ?? "?"}</span> a la bombe — tu regardes
+              </>
+            )}
+          </p>
+        )}
         <div className="my-1.5 h-2.5 w-full overflow-hidden rounded-full bg-void-deep/80">
           <div
             className="h-full rounded-full transition-[width] duration-700"
@@ -35,8 +59,9 @@ export function BombBanner({ bomb, players, myPlayerId }: { bomb: BombState; pla
           />
         </div>
         <p className="text-xs text-ink-muted">
-          Bombe {bomb.bombNumber}/{bomb.totalBombs} · bonne réponse = tu la refiles à un autre clan · explosion : −
-          {bomb.penalty} pts pour tout le clan
+          Bombe {bomb.bombNumber}/{bomb.totalBombs} · seul le clan qui l&apos;a répond, la majorité décide · juste = elle
+          passe au clan suivant · faux = elle reste et se rapproche de l&apos;explosion (−{bomb.penalty} pts pour tout le
+          clan)
         </p>
       </div>
     </div>

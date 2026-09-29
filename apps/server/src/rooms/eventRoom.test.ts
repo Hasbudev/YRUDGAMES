@@ -313,34 +313,58 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     expect(byId).toEqual({ a: 6, b: 3, c: 0 });
   });
 
-  it("manche 3: the bomb moves on a right answer and blows up on a whole clan", async () => {
-    const qs = Array.from({ length: 2 }, (_, i) =>
-      question(`v${i}`, { points: 1, metadata: { bomb: { count: 1, penalty: 20 } } })
+  it("manche 3: only the bomb's clan answers; its majority passes the bomb on or takes a strike", async () => {
+    const qs = Array.from({ length: 4 }, (_, i) =>
+      question(`v${i}`, { points: 1, choices: ["Vrai", "Faux"], correctIndex: 0, metadata: { bomb: { count: 1, penalty: 20 } } })
     );
-    const { room, emitted } = await room3Clans(qs);
-    await room.adjustPoints("a", 30);
-    await room.adjustPoints("b", 30);
-    await room.adjustPoints("c", 30);
+    const ctx = setup(qs);
+    const { room, emitted, lastQuestionNew } = ctx;
+    await room.addPlayer("a", "Alice", "rapepolofia");
+    await room.addPlayer("b", "Bob", "paldea");
+    await room.addPlayer("b2", "Bea", "paldea");
+    await room.addPlayer("b3", "Ben", "paldea");
+    await room.addPlayer("c", "Chloé", "yrud");
+    for (const id of ["a", "b", "b2", "b3", "c"]) room.markPlayerConnected(id);
+    await room.start();
+    for (const id of ["a", "b", "b2", "b3", "c"]) await room.adjustPoints(id, 30);
     await room.beginQuiz();
-    const first = room.snapshot().bomb!;
-    expect(first.bombNumber).toBe(1);
-    const holder = first.holderId!;
 
-    // Holder answers right → passes it on; nobody else answers.
-    room.submitAnswer(holder, "v0", 0);
+    // No category vote → passing order is the clan registry's.
+    const first = room.snapshot().bomb!;
+    expect(first.holderClan).toBe("rapepolofia");
+    expect(room.snapshot().answeringClan).toBe("rapepolofia");
+
+    // Q1: rapepolofia answers right; the others can't answer at all.
+    room.submitAnswer("a", "v0", 0);
+    room.submitAnswer("b", "v0", 1);
+    expect(room.snapshot().answeredPlayerIds).toEqual(["a"]);
     await room.reveal();
-    const afterPass = room.snapshot().bomb!;
-    expect(afterPass.holderId).not.toBe(holder);
+    expect(room.snapshot().bomb!.lastOutcome).toMatchObject({ clan: "rapepolofia", correct: true, passedTo: "paldea" });
     await room.next();
 
-    // Fuse is 2 questions for a single bomb over 2 questions → explodes now.
-    const unlucky = afterPass.holderId!;
+    // Q2: paldea's majority (2 of 3) answers wrong → the bomb stays, one strike.
+    const q2 = lastQuestionNew();
+    room.submitAnswer("b", q2.id, 1);
+    room.submitAnswer("b2", q2.id, 1);
+    room.submitAnswer("b3", q2.id, 0);
     await room.reveal();
+    const afterWrong = room.snapshot();
+    if (!emitted.some((e) => e.event === "bomb:explode")) {
+      // Its fuse wasn't out yet: still on paldea, heating up.
+      expect(afterWrong.bomb.holderClan).toBe("paldea");
+      expect(afterWrong.bomb.heat).toBeGreaterThan(0);
+    }
+    // Keep failing until it goes off (fuses are 1 to 3 strikes).
+    for (let i = 2; i < 4 && !emitted.some((e) => e.event === "bomb:explode"); i++) {
+      await room.next();
+      await room.reveal(); // nobody answers → wrong
+    }
     const boom = emitted.find((e) => e.event === "bomb:explode")!.payload;
-    expect(boom.holderId).toBe(unlucky);
+    expect(boom.clan).toBe("paldea");
+    expect(boom.affectedIds.sort()).toEqual(["b", "b2", "b3"]);
     const pts = Object.fromEntries(room.snapshot().players.map((p) => [p.id, p.points]));
-    expect(pts[unlucky]).toBe(10);
-    expect(room.snapshot().bomb).toBeUndefined();
+    // Ben voted right on Q2: his own +1 stands even though his clan lost the vote.
+    expect(pts).toMatchObject({ b: 10, b2: 10, b3: 11, a: 31, c: 30 });
   });
 
   it("manche 4: the manche's winner steals from whoever they pick", async () => {

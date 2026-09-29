@@ -109,7 +109,7 @@ export function PlayClient({ code }: { code: string }) {
   // takes over the display at that point).
   const [pendingCombat, setPendingCombat] = useState<{ player1: string; player2: string } | null>(null);
   const [sliderTrick, setSliderTrick] = useState<{ trick: SliderTrick; key: number } | null>(null);
-  const [boom, setBoom] = useState<{ clan: string; holderName: string; penalty: number; key: number } | null>(null);
+  const [boom, setBoom] = useState<{ clan: string; penalty: number; key: number } | null>(null);
   const { setMood, flash } = useSceneMood();
   const prevPhaseRef = useRef<GamePhase | null>(null);
   const captionCounter = useRef(0);
@@ -235,10 +235,7 @@ export function PlayClient({ code }: { code: string }) {
     });
     socket.on("battle:plan", ({ text }) => setBattlePlan(text));
     socket.on("slider:trick", ({ trick }) => setSliderTrick({ trick, key: Date.now() }));
-    socket.on("bomb:explode", ({ holderId, clan, penalty }) => {
-      const holderName = snapshotRef.current?.players.find((p) => p.id === holderId)?.name ?? "?";
-      setBoom({ clan, holderName, penalty, key: Date.now() });
-    });
+    socket.on("bomb:explode", ({ clan, penalty }) => setBoom({ clan, penalty, key: Date.now() }));
     socket.on("steal:done", ({ thiefId, victimId, amount }) => {
       const players = snapshotRef.current?.players ?? [];
       const name = (id: string) => players.find((p) => p.id === id)?.name ?? "?";
@@ -430,7 +427,6 @@ export function PlayClient({ code }: { code: string }) {
         <BombExplosion
           key={boom.key}
           clan={boom.clan}
-          holderName={boom.holderName}
           penalty={boom.penalty}
           onDone={() => setBoom(null)}
         />
@@ -593,8 +589,8 @@ export function PlayClient({ code }: { code: string }) {
           <QuestionCard
             key={question.id}
             question={question}
-            // Manche 1: only the clan whose turn it is may answer.
-            disabled={selectedIndex !== null || categoryInfo?.mine === false}
+            // Manches 1 and 3: only the clan whose turn it is may answer.
+            disabled={selectedIndex !== null || (!!snapshot?.answeringClan && snapshot.answeringClan !== myself?.clan)}
             selectedIndex={selectedIndex}
             onAnswer={answer}
             onAnswerText={answerText}

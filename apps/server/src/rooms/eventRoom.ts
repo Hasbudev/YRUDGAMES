@@ -2,6 +2,7 @@ import type { Server } from "socket.io";
 import type {
   ArenaSnapshot,
   BattleChoiceRequest,
+  BombState,
   CategoryDraft,
   StealState,
   ClientToServerEvents,
@@ -17,6 +18,7 @@ import type {
   TeamSheetMember,
 } from "@yrud/shared";
 import {
+  BOMB_STRIKES,
   SLIDER_TRICKS,
   type SliderTrick,
   CLAN_REGISTRY,
@@ -106,10 +108,19 @@ export class EventRoom {
   // Manche 1 — which clan got which category, and the live vote.
   private categoryDraft: CategoryDraft | null = null;
   private draftVotes: Record<string, string> = {};
-  // Manche 3 — the hot-potato bomb: its holder, how many questions each
-  // bomb's fuse lasts (secret), and how far the current one has burned.
-  private bomb: { roundIndex: number; holderId: string | null; number: number; fuses: number[]; held: number; penalty: number } | null =
-    null;
+  // Manche 3 — the hot-potato bomb: the clan holding it, the clans' passing
+  // order, how many strikes each bomb takes to go off (secret) and how many
+  // the current one has.
+  private bomb: {
+    roundIndex: number;
+    holderClan: string | null;
+    order: string[];
+    number: number;
+    fuses: number[];
+    strikes: number;
+    penalty: number;
+    lastOutcome?: BombState["lastOutcome"];
+  } | null = null;
   private bombRoundsDone = new Set<number>();
   // Points each player gained in the manche being played — for manche 4's
   // "the winner steals" and nothing else.
@@ -219,11 +230,12 @@ export class EventRoom {
       answeringClan: this.answeringClan(),
       bomb: this.bomb
         ? {
-            holderId: this.bomb.holderId,
-            bombNumber: this.bomb.number,
+            holderClan: this.bomb.holderClan,
+            bombNumber: Math.min(this.bomb.number, this.bomb.fuses.length),
             totalBombs: this.bomb.fuses.length,
-            heat: Math.min(1, this.bomb.held / this.bomb.fuses[this.bomb.number - 1]),
+            heat: Math.min(1, this.bomb.strikes / (this.bomb.fuses[this.bomb.number - 1] ?? 1)),
             penalty: this.bomb.penalty,
+            lastOutcome: this.bomb.lastOutcome,
           }
         : undefined,
       steal: this.steal ?? undefined,
@@ -425,15 +437,24 @@ export class EventRoom {
         : null;
     const bombRule = current.metadata?.bomb;
     if (bombRule && !this.bomb && !this.bombRoundsDone.has(current.roundIndex)) {
-      const inRound = this.state.questions.filter((q) => q.roundIndex === current.roundIndex && q.metadata?.bomb).length;
+      const order = this.categoryDraft?.order ?? CLAN_REGISTRY.map((c) => c.id);
       this.bomb = {
         roundIndex: current.roundIndex,
-        holderId: this.randomPlayer(),
+        order,
+        holderClan: this.nextClanWithPlayers(order, null),
         number: 1,
-        fuses: splitFuses(inRound, bombRule.count),
-        held: 0,
+        fuses: Array.from({ length: bombRule.count }, () => BOMB_STRIKES.min + Math.floor(Math.random() * (BOMB_STRIKES.max - BOMB_STRIKES.min + 1))),
+        strikes: 0,
         penalty: bombRule.penalty,
       };
+    }
+    if (this.bomb) {
+      this.bomb.lastOutcome = undefined;
+      if (this.bomb.number > this.bomb.fuses.length) {
+        // Every bomb has gone off — the rest of the manche is played by all.
+        this.bombRoundsDone.add(this.bomb.roundIndex);
+        this.bomb = null;
+      }
     }
     this.liveTimeLimitMs = this.timeLimitFor(current);
     const question = this.publicQuestion();
@@ -464,7 +485,7 @@ export class EventRoom {
 
     if (question) {
       this.trackRoundGains(question.roundIndex, result);
-      if (question.metadata?.bomb) this.tickBomb(result);
+      if (question.metadata?.bomb) this.tickBomb(question, result);
       this.maybeOpenSteal(question);
     }
 
@@ -605,17 +626,6 @@ export class EventRoom {
     return resolveClan(this.clanByPlayer[playerId], playerId).id;
   }
 
-  private randomPlayer(excludeClan?: string): string | null {
-    const all = this.state.playerOrder;
-    const pool = (ids: string[]) => {
-      const connected = ids.filter((id) => this.connectedPlayers.has(id));
-      return connected.length ? connected : ids;
-    };
-    const others = excludeClan ? all.filter((id) => this.clanOf(id) !== excludeClan) : all;
-    const candidates = pool(others.length ? others : all);
-    return candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : null;
-  }
-
   private async setPoints(playerId: string, points: number) {
     const player = this.state.players[playerId];
     if (!player) return;
@@ -641,19 +651,30 @@ export class EventRoom {
     return Object.entries(this.categoryDraft.assignments).find(([, c]) => c === category)?.[0];
   }
 
+  // The only clan allowed to answer this question: its category's owner
+  // (manche 1) or the bomb's holder (manche 3). undefined = everyone plays.
+  private turnClan(question: InternalQuestion | undefined): string | undefined {
+    if (question?.metadata?.bomb && this.bomb) return this.bomb.holderClan ?? undefined;
+    return this.ownerClan(question);
+  }
+
   private answeringClan(): string | undefined {
     if (this.state.phase !== "question" && this.state.phase !== "reveal") return undefined;
-    return this.ownerClan(engine.currentQuestion(this.state));
+    const question = engine.currentQuestion(this.state);
+    // At reveal the bomb may already have moved on — the clan that answered
+    // is the one in its outcome.
+    if (this.state.phase === "reveal" && question?.metadata?.bomb && this.bomb?.lastOutcome) return this.bomb.lastOutcome.clan;
+    return this.turnClan(question);
   }
 
   private canAnswer(playerId: string, question: InternalQuestion): boolean {
-    const owner = this.ownerClan(question);
-    return !owner || this.clanOf(playerId) === owner;
+    const clan = this.turnClan(question);
+    return !clan || this.clanOf(playerId) === clan;
   }
 
   private participantFilter(question: InternalQuestion | undefined) {
-    const owner = this.ownerClan(question);
-    return owner ? (playerId: string) => this.clanOf(playerId) === owner : undefined;
+    const clan = this.turnClan(question);
+    return clan ? (playerId: string) => this.clanOf(playerId) === clan : undefined;
   }
 
   private categoryPointsFor(question: InternalQuestion | undefined) {
@@ -776,43 +797,64 @@ export class EventRoom {
 
   // --- Manche 3: the bomb ---------------------------------------------------
 
-  // The holder answering right passes the bomb to someone of another clan;
-  // then the fuse burns one question, and if it's out the bomb goes off on
-  // whoever holds it now: every player of that clan loses `penalty`.
-  private tickBomb(result: RevealResult) {
-    const bomb = this.bomb;
-    if (!bomb) return;
-    const holder = bomb.holderId;
-    if (holder && result.results.find((r) => r.playerId === holder)?.correct) {
-      bomb.holderId = this.randomPlayer(this.clanOf(holder));
+  // The next clan after `from` in the passing order that has players (the
+  // first one when `from` is null) — a clan nobody is playing for is skipped.
+  private nextClanWithPlayers(order: string[], from: string | null): string | null {
+    const withPlayers = new Set(this.state.playerOrder.map((id) => this.clanOf(id)));
+    const start = from === null ? -1 : order.indexOf(from);
+    for (let step = 1; step <= order.length; step++) {
+      const clan = order[(start + step + order.length) % order.length];
+      if (withPlayers.has(clan)) return clan;
     }
-    bomb.held += 1;
-    if (bomb.held < bomb.fuses[bomb.number - 1]) return;
+    return null;
+  }
 
-    const victim = bomb.holderId;
-    if (victim) {
-      const clan = this.clanOf(victim);
-      const affectedIds = this.state.playerOrder.filter((id) => this.clanOf(id) === clan);
-      for (const id of affectedIds) {
-        const player = this.state.players[id];
-        const points = Math.max(0, player.points - bomb.penalty);
-        this.state = { ...this.state, players: { ...this.state.players, [id]: { ...player, points } } };
-        const entry = result.results.find((r) => r.playerId === id);
-        if (entry) {
-          entry.delta += points - entry.points;
-          entry.points = points;
-        }
+  // The holding clan's majority answer decides: right → the bomb goes to the
+  // next clan; wrong (or a tie with a wrong answer, or nobody answering) →
+  // it stays and takes a strike, and at its secret number of strikes it goes
+  // off: every player of that clan loses `penalty`, and the next bomb starts
+  // with the next clan.
+  private tickBomb(question: InternalQuestion, result: RevealResult) {
+    const bomb = this.bomb;
+    const clan = bomb?.holderClan;
+    if (!bomb || !clan) return;
+
+    const votes = new Map<number, number>();
+    for (const r of result.results) {
+      if (r.choiceIndex !== null) votes.set(r.choiceIndex, (votes.get(r.choiceIndex) ?? 0) + 1);
+    }
+    const total = [...votes.values()].reduce((a, b) => a + b, 0);
+    const best = Math.max(0, ...votes.values());
+    const rightVotes = votes.get(question.correctIndex) ?? 0;
+    const correct = rightVotes > 0 && [...votes.entries()].every(([choice, n]) => choice === question.correctIndex || n < rightVotes);
+
+    if (correct) {
+      bomb.holderClan = this.nextClanWithPlayers(bomb.order, clan);
+      bomb.lastOutcome = { clan, correct: true, votes: total, majorityVotes: rightVotes, passedTo: bomb.holderClan ?? undefined };
+      return;
+    }
+
+    bomb.strikes += 1;
+    bomb.lastOutcome = { clan, correct: false, votes: total, majorityVotes: best };
+    if (bomb.strikes < bomb.fuses[bomb.number - 1]) return;
+
+    const affectedIds = this.state.playerOrder.filter((id) => this.clanOf(id) === clan);
+    for (const id of affectedIds) {
+      const player = this.state.players[id];
+      const points = Math.max(0, player.points - bomb.penalty);
+      this.state = { ...this.state, players: { ...this.state.players, [id]: { ...player, points } } };
+      const entry = result.results.find((r) => r.playerId === id);
+      if (entry) {
+        entry.delta += points - entry.points;
+        entry.points = points;
       }
-      this.io.to(this.socketRoom).emit("bomb:explode", { holderId: victim, clan, penalty: bomb.penalty, affectedIds });
     }
-    if (bomb.number >= bomb.fuses.length) {
-      this.bombRoundsDone.add(bomb.roundIndex);
-      this.bomb = null;
-    } else {
-      bomb.number += 1;
-      bomb.held = 0;
-      bomb.holderId = this.randomPlayer();
-    }
+    this.io.to(this.socketRoom).emit("bomb:explode", { clan, penalty: bomb.penalty, affectedIds });
+    bomb.lastOutcome = { ...bomb.lastOutcome, exploded: true };
+    bomb.number += 1;
+    bomb.strikes = 0;
+    bomb.holderClan = bomb.number > bomb.fuses.length ? null : this.nextClanWithPlayers(bomb.order, clan);
+    if (bomb.holderClan) bomb.lastOutcome.passedTo = bomb.holderClan;
   }
 
   // --- Manche 4: the winner steals ------------------------------------------
@@ -1155,14 +1197,4 @@ export class EventRoom {
       finalBattleWinnerName: finalBattleWinnerId ? (this.state.players[finalBattleWinnerId]?.name ?? null) : null,
     };
   }
-}
-
-// Splits a manche's `questions` among `bombs` fuses (each at least 2
-// questions when there's room), so the last bomb goes off on the last one.
-export function splitFuses(questions: number, bombs: number): number[] {
-  const count = Math.max(1, Math.min(bombs, questions));
-  const minimum = questions >= count * 2 ? 2 : 1;
-  const fuses = Array<number>(count).fill(minimum);
-  for (let left = questions - minimum * count; left > 0; left--) fuses[Math.floor(Math.random() * count)] += 1;
-  return fuses;
 }

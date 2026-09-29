@@ -97,7 +97,7 @@ export function SpecialRoundsPanel({ snapshot, onStartDraft, onCloseVote, onSkip
         </div>
       )}
 
-      {snapshot.answeringClan && (
+      {snapshot.answeringClan && !snapshot.bomb && (
         <p className="pl-5 text-ink">
           🏳 Au tour de <b className="text-gold-bright">{clanLabel(snapshot.answeringClan)}</b> — seuls ses joueurs
           répondent, les autres regardent.
@@ -117,8 +117,9 @@ export function SpecialRoundsPanel({ snapshot, onStartDraft, onCloseVote, onSkip
 
       {snapshot.bomb && (
         <p className="pl-5 text-ink">
-          💣 Bombe {snapshot.bomb.bombNumber}/{snapshot.bomb.totalBombs} — tenue par <b>{nameOf(snapshot.bomb.holderId)}</b>{" "}
-          · mèche {Math.round(snapshot.bomb.heat * 100)} %
+          💣 Bombe {snapshot.bomb.bombNumber}/{snapshot.bomb.totalBombs} — tenue par le clan{" "}
+          <b>{snapshot.bomb.holderClan ? clanLabel(snapshot.bomb.holderClan) : "—"}</b> · mèche{" "}
+          {Math.round(snapshot.bomb.heat * 100)} %
         </p>
       )}
 

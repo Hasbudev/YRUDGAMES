@@ -57,7 +57,7 @@ export function WatchClient({ code }: { code: string }) {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<ArenaSnapshot | null>(null);
   const [sliderTrick, setSliderTrick] = useState<{ trick: SliderTrick; key: number } | null>(null);
-  const [boom, setBoom] = useState<{ holderId: string; clan: string; penalty: number; key: number } | null>(null);
+  const [boom, setBoom] = useState<{ clan: string; penalty: number; key: number } | null>(null);
   const [question, setQuestion] = useState<PublicQuestion | null>(null);
   const [winnerIds, setWinnerIds] = useState<string[] | null>(null);
   const [summary, setSummary] = useState<EventSummary | null>(null);
@@ -128,7 +128,7 @@ export function WatchClient({ code }: { code: string }) {
     });
     socket.on("battle:plan", ({ text }) => setBattlePlan(text));
     socket.on("slider:trick", ({ trick }) => setSliderTrick({ trick, key: Date.now() }));
-    socket.on("bomb:explode", ({ holderId, clan, penalty }) => setBoom({ holderId, clan, penalty, key: Date.now() }));
+    socket.on("bomb:explode", ({ clan, penalty }) => setBoom({ clan, penalty, key: Date.now() }));
 
     return () => {
       socket.disconnect();
@@ -206,7 +206,6 @@ export function WatchClient({ code }: { code: string }) {
         <BombExplosion
           key={boom.key}
           clan={boom.clan}
-          holderName={snapshot.players.find((p) => p.id === boom.holderId)?.name ?? "?"}
           penalty={boom.penalty}
           onDone={() => setBoom(null)}
         />

@@ -37,12 +37,21 @@ export function summarizeRound(
   }
   const bomb = inRound.find((q) => q.metadata?.bomb)?.metadata?.bomb;
   if (bomb) {
-    specialRules.push({
-      icon: "💣",
-      label: `${bomb.count} bombes : bonne réponse = tu la refiles à un autre clan. Quand elle explose, tout le clan qui la tient perd`,
-      value: `−${bomb.penalty} pts`,
-      tone: "loss",
-    });
+    specialRules.push(
+      {
+        icon: "💣",
+        label: "Seul le clan qui a la bombe répond, la majorité de ses votes décide",
+        value: "+1 pt / bonne rép.",
+        tone: "gain",
+      },
+      { icon: "✔", label: "Le clan vote juste : la bombe passe au clan suivant", value: "ouf", tone: "neutral" },
+      {
+        icon: "💥",
+        label: `Le clan vote faux : la bombe reste et chauffe… à l'explosion (${bomb.count} bombes), tout le clan perd`,
+        value: `−${bomb.penalty} pts`,
+        tone: "loss",
+      }
+    );
   }
   const steal = inRound.find((q) => q.metadata?.steal)?.metadata?.steal;
   if (steal) {

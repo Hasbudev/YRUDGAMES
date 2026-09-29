@@ -5,7 +5,7 @@ import { CLAN_REGISTRY } from "@yrud/shared";
 import { playWrong } from "@/lib/sfx";
 
 // Full-screen "BOUM" when a bomb goes off.
-export function BombExplosion({ clan, holderName, penalty, onDone }: { clan: string; holderName: string; penalty: number; onDone: () => void }) {
+export function BombExplosion({ clan, penalty, onDone }: { clan: string; penalty: number; onDone: () => void }) {
   const def = CLAN_REGISTRY.find((c) => c.id === clan);
   useEffect(() => {
     playWrong();
@@ -21,8 +21,8 @@ export function BombExplosion({ clan, holderName, penalty, onDone }: { clan: str
       <p className="animate-scene-enter text-8xl">💥</p>
       <p className="font-display text-6xl font-black text-white drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">BOUM !</p>
       <p className="mt-2 font-display text-2xl font-bold text-white">
-        La bombe explose sur {holderName} — clan{" "}
-        <span style={{ color: def?.color }}>{def?.label ?? clan}</span> : −{penalty} pts chacun
+        La bombe explose sur le clan <span style={{ color: def?.color }}>{def?.label ?? clan}</span> : −{penalty} pts
+        chacun
       </p>
     </div>
   );

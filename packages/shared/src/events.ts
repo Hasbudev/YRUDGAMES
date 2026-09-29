@@ -9,7 +9,7 @@ import type { EventSummary } from "./summary-types";
 
 export interface ServerToClientEvents {
   // Manche 3 — the bomb went off on its holder's clan.
-  "bomb:explode": (payload: { holderId: string; clan: string; penalty: number; affectedIds: string[] }) => void;
+  "bomb:explode": (payload: { clan: string; penalty: number; affectedIds: string[] }) => void;
   // Manche 4 — a winner took their points.
   "steal:done": (payload: { thiefId: string; victimId: string; amount: number }) => void;
   // Manche 2 — Rudy messes with everyone's cursor.
