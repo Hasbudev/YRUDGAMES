@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSuppressAmbiance } from "@/lib/ambiance";
 
 const BAR_COUNT = 12;
 
@@ -14,6 +15,7 @@ interface LocalBlindTestPlayerProps {
 // decides live when the round is over and hits "reveal" himself, so there's
 // nothing here to time out on.
 export function LocalBlindTestPlayer({ audioFile }: LocalBlindTestPlayerProps) {
+  useSuppressAmbiance(); // the clip must be heard alone
   const audioRef = useRef<HTMLAudioElement>(null);
   const barsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState<"loading" | "waiting-for-click" | "playing" | "paused">("loading");

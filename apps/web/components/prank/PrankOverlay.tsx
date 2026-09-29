@@ -5,6 +5,7 @@ import Image from "next/image";
 import gsap from "gsap";
 import type { PrankDefinition } from "@yrud/shared";
 import { playPrankSting } from "@/lib/sfx";
+import { useSuppressAmbiance } from "@/lib/ambiance";
 
 // Per-id visual flourish. Any future registry entry without bespoke sprite
 // art here still gets a full jumpscare treatment via the emoji fallback —
@@ -84,6 +85,7 @@ function SpritePrankOverlay({ prank, text, onDone }: PrankOverlayProps) {
 // callback goes through a ref because callers pass a fresh closure every
 // render, and re-running the effect would restart the safety timer.
 function VideoPrankOverlay({ prank, onDone }: PrankOverlayProps) {
+  useSuppressAmbiance();
   const videoRef = useRef<HTMLVideoElement>(null);
   const onDoneRef = useRef(onDone);
   useEffect(() => {
@@ -132,6 +134,7 @@ function VideoPrankOverlay({ prank, onDone }: PrankOverlayProps) {
 // An image popping up over the game while an audio clip plays; closes when
 // the clip ends. Same ref-for-onDone reasoning as VideoPrankOverlay.
 function ImageAudioPrankOverlay({ prank, onDone }: PrankOverlayProps) {
+  useSuppressAmbiance();
   const imageRef = useRef<HTMLDivElement>(null);
   const onDoneRef = useRef(onDone);
   useEffect(() => {

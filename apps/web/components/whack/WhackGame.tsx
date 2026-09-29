@@ -19,6 +19,7 @@ import {
   type WhackHit,
 } from "@yrud/shared";
 import { playWhack } from "@/lib/sfx";
+import { useSuppressAmbiance } from "@/lib/ambiance";
 import { OrnatePanel } from "@/components/quiz/OrnatePanel";
 import { MoleSprite } from "./MoleSprite";
 
@@ -126,6 +127,8 @@ export function WhackGame({ question, onWhack, paused }: WhackGameProps) {
   const voiceRef = useRef<HTMLAudioElement>(null);
   const [voiceState, setVoiceState] = useState<"waiting" | "playing" | "done">("waiting");
   const musicOn = elapsed >= 0 && !over && !paused;
+  // The game has its own music — the background theme waits for the whole board.
+  useSuppressAmbiance(!over);
   const voiceOn = musicOn && voiceState === "playing";
   if (voiceState === "waiting" && musicOn && elapsed >= WHACK_VOICE_AT_MS) setVoiceState("playing");
 

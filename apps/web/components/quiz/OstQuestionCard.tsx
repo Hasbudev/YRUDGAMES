@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playMelody } from "@/lib/sfx";
+import { useSuppressAmbiance } from "@/lib/ambiance";
 
 interface OstPlayerProps {
   notes?: { freq: number; durationMs: number }[];
@@ -11,6 +12,7 @@ interface OstPlayerProps {
 const BAR_COUNT = 12;
 
 export function OstPlayer({ notes, mediaUrl }: OstPlayerProps) {
+  useSuppressAmbiance();
   const [playing, setPlaying] = useState(false);
   const [bars, setBars] = useState<number[]>(Array(BAR_COUNT).fill(0.15));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
