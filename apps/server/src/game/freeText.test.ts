@@ -21,3 +21,28 @@ describe("matchesFreeText", () => {
     expect(matchesFreeText("Jarra", ACCEPTED)).toBe(false);
   });
 });
+
+describe("Navidex answers", () => {
+  const NAVIDEX: [string, string][] = [
+    ["Dedenne", "Dedenne"],
+    ["Lampignon", "Shiinotic"],
+    ["Hoothoot", "Hoothoot"],
+    ["Limonde", "Stunfisk"],
+    ["Cerfrousse", "Stantler"],
+    ["Coquiperl", "Clamperl"],
+    ["Venipatte", "Venipede"],
+    ["Magicarpe", "Magikarp"],
+    ["Chovsourir", "Woobat"],
+    ["Chétiflor", "Bellsprout"],
+  ];
+
+  it("accepts the French and English name in any case, with or without accents", () => {
+    for (const [fr, en] of NAVIDEX) {
+      const accepted = [fr, en];
+      for (const typed of [fr, en, fr.toUpperCase(), en.toLowerCase(), fr.normalize("NFD").replace(/[̀-ͯ]/g, "")]) {
+        expect(matchesFreeText(typed, accepted), `${typed} → ${fr}`).toBe(true);
+      }
+    }
+    expect(matchesFreeText("Morelull", ["Lampignon", "Shiinotic"])).toBe(false);
+  });
+});

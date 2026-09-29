@@ -301,7 +301,7 @@ const BLIND_TEST: NewQuestion[] = [
 // type the missing one. French and English names both count.
 const NAVIDEX: { route: string; fr: string; en: string }[] = [
   { route: "la Route 11 (Kalos)", fr: "Dedenne", en: "Dedenne" },
-  { route: "la Route 11 (Alola, USUL)", fr: "Lampignon", en: "Morelull" },
+  { route: "la Route 11 (Alola, USUL)", fr: "Lampignon", en: "Shiinotic" },
   { route: "la Route 1 (Galar)", fr: "Hoothoot", en: "Hoothoot" },
   { route: "la Route 8 (Unys, N2B2)", fr: "Limonde", en: "Stunfisk" },
   { route: "la Route 207 (Sinnoh, BDSP)", fr: "Cerfrousse", en: "Stantler" },
