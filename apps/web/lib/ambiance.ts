@@ -5,7 +5,7 @@ import type { SceneMood } from "@/components/scene/SceneMoodContext";
 // played one after the other and looped by the floating sound bar
 // (AmbiancePlayer). An empty list = silence for that mood. Same playlist
 // everywhere for now.
-const PLAYLIST = ["/ambiance/leon-epic.mp3", "/ambiance/leon-remix.mp3"];
+const PLAYLIST = ["/ambiance/leon-epic.mp3", "/ambiance/leon-remix.mp3", "/ambiance/zinnia-mashup.mp3"];
 export const AMBIANCE_TRACKS: Record<SceneMood, string[]> = {
   calm: PLAYLIST, // lobby, quiz rounds
   tense: PLAYLIST, // close calls, trap reveals
