@@ -8,10 +8,7 @@ import {
   RUDY_BOOST_MS,
   RUDY_BOOST_MULTIPLIER,
   WHACK_HOLES,
-  WHACK_MUSIC_RATE,
   WHACK_MUSIC_URL,
-  WHACK_VOICE_AT_MS,
-  WHACK_VOICE_URL,
   whackSchedule,
   whackScore,
   type Mole,
@@ -120,21 +117,16 @@ export function WhackGame({ question, onWhack, paused }: WhackGameProps) {
 
   const remaining = Math.max(0, durationMs - Math.max(0, elapsed));
 
-  // The live mix: the music for the length of the game (silent during a
-  // prank), speeding up as the moles do, with the voice clip dropped in once
-  // at WHACK_VOICE_AT_MS while the music ducks under it.
+  // The game's own music, looped for the length of the board (paused during
+  // a prank). The background theme waits for the whole game.
   const musicRef = useRef<HTMLAudioElement>(null);
-  const voiceRef = useRef<HTMLAudioElement>(null);
-  const [voiceState, setVoiceState] = useState<"waiting" | "playing" | "done">("waiting");
   const musicOn = elapsed >= 0 && !over && !paused;
-  // The game has its own music — the background theme waits for the whole board.
   useSuppressAmbiance(!over);
-  const voiceOn = musicOn && voiceState === "playing";
-  if (voiceState === "waiting" && musicOn && elapsed >= WHACK_VOICE_AT_MS) setVoiceState("playing");
 
   useEffect(() => {
     const audio = musicRef.current;
     if (!audio) return;
+    audio.volume = 0.8;
     if (musicOn) {
       audio.play().catch(() => {});
     } else {
@@ -142,40 +134,9 @@ export function WhackGame({ question, onWhack, paused }: WhackGameProps) {
     }
   }, [musicOn]);
 
-  useEffect(() => {
-    const voice = voiceRef.current;
-    if (!voice) return;
-    if (voiceOn) {
-      voice.volume = 1;
-      voice.play().catch(() => setVoiceState("done"));
-    } else {
-      voice.pause();
-    }
-  }, [voiceOn]);
-
-  // Tempo follows the game; stepped to 0.01 so it isn't reset every frame.
-  const rate =
-    remaining <= WHACK_MUSIC_RATE.finalRushMs
-      ? WHACK_MUSIC_RATE.finalRush
-      : WHACK_MUSIC_RATE.start +
-        (WHACK_MUSIC_RATE.end - WHACK_MUSIC_RATE.start) * Math.min(1, Math.max(0, elapsed) / Math.max(1, durationMs));
-  const steppedRate = Math.round(rate * 100) / 100;
-  useEffect(() => {
-    const audio = musicRef.current;
-    if (!audio) return;
-    audio.preservesPitch = false; // pitch rises with the tempo — arcade feel
-    audio.playbackRate = steppedRate;
-  }, [steppedRate]);
-
-  useEffect(() => {
-    const audio = musicRef.current;
-    if (audio) audio.volume = voiceOn ? 0.2 : 0.6;
-  }, [voiceOn]);
-
   return (
     <OrnatePanel className="animate-scene-enter w-full max-w-2xl">
       <audio ref={musicRef} src={WHACK_MUSIC_URL} loop preload="auto" />
-      <audio ref={voiceRef} src={WHACK_VOICE_URL} preload="auto" onEnded={() => setVoiceState("done")} />
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3 text-xs">
           <span className="rounded-full border border-gold/40 bg-gold/10 px-3 py-1 font-semibold uppercase tracking-wide text-gold-bright">

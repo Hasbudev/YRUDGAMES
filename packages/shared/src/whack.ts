@@ -63,13 +63,9 @@ export const MOLE_KINDS: Record<MoleKind, MoleKindDef> = {
 };
 
 export const WHACK_HOLES = 9;
-// Background music looped during the game (apps/web/public). It speeds up
-// with the game (arcade-style, pitch rising too) and ducks under the voice.
-export const WHACK_MUSIC_URL = "/whack/musique.mp4";
-export const WHACK_MUSIC_RATE = { start: 1, end: 1.12, finalRush: 1.2, finalRushMs: 10_000 };
-// Voice clip dropped into the mix once, mid-game.
-export const WHACK_VOICE_URL = "/pranks/zeratchoupi-vocal.ogg";
-export const WHACK_VOICE_AT_MS = 20_000;
+// The game's only background music (apps/web/public), looped: the
+// ZeraTchoupi voice message.
+export const WHACK_MUSIC_URL = "/pranks/zeratchoupi-vocal.ogg";
 export const ARTY_POPUP_MS = 3000;
 // How late a hit may reach the server after the mole went back down —
 // covers network latency, not reflexes.
