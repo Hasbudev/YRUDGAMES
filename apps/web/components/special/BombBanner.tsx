@@ -60,8 +60,8 @@ export function BombBanner({ bomb, players, myPlayerId }: { bomb: BombState; pla
         </div>
         <p className="text-xs text-ink-muted">
           Bombe {bomb.bombNumber}/{bomb.totalBombs} · seul le clan qui l&apos;a répond, la majorité décide · juste = elle
-          passe au clan suivant · faux = elle reste et se rapproche de l&apos;explosion (−{bomb.penalty} pts divisés par
-          le nombre de votants, pour chaque joueur du clan — votez tous !)
+          passe au clan suivant · faux = elle reste et se rapproche de l&apos;explosion (−{bomb.penalty} pts pour chaque
+          joueur du clan)
         </p>
       </div>
     </div>

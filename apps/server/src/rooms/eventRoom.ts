@@ -839,10 +839,8 @@ export class EventRoom {
     bomb.lastOutcome = { clan, correct: false, votes: total, majorityVotes: best };
     if (bomb.strikes < bomb.fuses[bomb.number - 1]) return;
 
-    // The penalty is shared by the clan's voters on this question: every
-    // player of the clan loses penalty ÷ voters (nobody voted → the full
-    // penalty) — the more of them answer, the softer the blast.
-    const share = Math.round(bomb.penalty / Math.max(1, total));
+    // Every player of the clan loses the full penalty.
+    const share = bomb.penalty;
     const affectedIds = this.state.playerOrder.filter((id) => this.clanOf(id) === clan);
     for (const id of affectedIds) {
       const player = this.state.players[id];

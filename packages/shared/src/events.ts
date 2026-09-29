@@ -9,7 +9,7 @@ import type { EventSummary } from "./summary-types";
 
 export interface ServerToClientEvents {
   // Manche 3 — the bomb went off on its holder's clan; `penalty` is what
-  // each of its players actually lost (the bomb's penalty ÷ the clan's voters).
+  // each of its players lost.
   "bomb:explode": (payload: { clan: string; penalty: number; affectedIds: string[] }) => void;
   // Manche 4 — a winner took their points.
   "steal:done": (payload: { thiefId: string; victimId: string; amount: number }) => void;

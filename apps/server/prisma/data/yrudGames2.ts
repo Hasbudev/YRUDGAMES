@@ -1,7 +1,7 @@
 // Yrud Games 2 — the six manches, as laid out in the organisers' rules doc:
 //   1 Quizz mécaniques — each clan picks a category (6 pts on its own, 3 on others)
 //   2 Stat slider      — stop the cursor on the stat's max (6 / 3 / 1 pts)
-//   3 Vrai ou Faux     — plus 3 hot-potato bombs (−20 for the clan holding one)
+//   3 Vrai ou Faux     — plus 3 hot-potato bombs (−10 per player of the clan holding one)
 //   4 Le Navidex       — free text; each question's fastest finder steals 5 pts
 //   5 Blind Test       — per-question points from the doc
 //   6 Chasse-Taupes
@@ -340,7 +340,7 @@ export const YRUD_GAMES_2_ROUNDS: NewRound[] = [
       prompt: q.statement,
       choices: ["Vrai", "Faux"],
       correctIndex: q.answer ? 0 : 1,
-      meta: { bomb: { count: 3, penalty: 20 } },
+      meta: { bomb: { count: 3, penalty: 10 } },
     })),
   },
   {

@@ -317,7 +317,7 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     // Fuses at their minimum (1 strike) so the explosion lands on a known question.
     const random = vi.spyOn(Math, "random").mockReturnValue(0);
     const qs = Array.from({ length: 4 }, (_, i) =>
-      question(`v${i}`, { points: 1, choices: ["Vrai", "Faux"], correctIndex: 0, metadata: { bomb: { count: 2, penalty: 20 } } })
+      question(`v${i}`, { points: 1, choices: ["Vrai", "Faux"], correctIndex: 0, metadata: { bomb: { count: 2, penalty: 10 } } })
     );
     const { room, emitted, lastQuestionNew } = setup(qs);
     await room.addPlayer("a", "Alice", "rapepolofia");
@@ -342,25 +342,25 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     expect(room.snapshot().bomb!.lastOutcome).toMatchObject({ clan: "rapepolofia", correct: true, passedTo: "paldea" });
     await room.next();
 
-    // Q2: paldea's majority (2 of 3) answers wrong → strike → boom, shared by
-    // its 3 voters: 20 ÷ 3 → 7 each. The next bomb goes to yrud.
+    // Q2: paldea's majority (2 of 3) answers wrong → strike → boom: −10 for
+    // every paldea player. The next bomb goes to yrud.
     const q2 = lastQuestionNew();
     room.submitAnswer("b", q2.id, 1);
     room.submitAnswer("b2", q2.id, 1);
     room.submitAnswer("b3", q2.id, 0);
     await room.reveal();
     const boom = emitted.find((e) => e.event === "bomb:explode")!.payload;
-    expect(boom).toMatchObject({ clan: "paldea", penalty: 7 });
+    expect(boom).toMatchObject({ clan: "paldea", penalty: 10 });
     let pts = Object.fromEntries(room.snapshot().players.map((p) => [p.id, p.points]));
     // Ben voted right: his own +1 stands even though his clan lost the vote.
-    expect(pts).toMatchObject({ b: 23, b2: 23, b3: 24, a: 31, c: 30 });
+    expect(pts).toMatchObject({ b: 20, b2: 20, b3: 21, a: 31, c: 30 });
     expect(room.snapshot().bomb!.lastOutcome).toMatchObject({ exploded: true, passedTo: "yrud" });
     await room.next();
 
-    // Q3: yrud doesn't answer at all → nobody voted → the full 20.
+    // Q3: yrud doesn't answer at all → wrong → boom, −10.
     await room.reveal();
     pts = Object.fromEntries(room.snapshot().players.map((p) => [p.id, p.points]));
-    expect(pts.c).toBe(10);
+    expect(pts.c).toBe(20);
     random.mockRestore();
   });
 
