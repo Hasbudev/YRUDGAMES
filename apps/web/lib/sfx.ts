@@ -87,3 +87,27 @@ export function playWhack(good: boolean) {
   if (good) tone(880, 0.07, "square", 0.08, 0);
   else tone(180, 0.15, "sawtooth", 0.1, 0);
 }
+
+// Robotic "Google Translate" voice — the browser's own speech synthesis,
+// preferring a Google French voice (Chrome's "Google français") when there
+// is one. Silently does nothing on a browser without speech synthesis.
+// Browsers load their voice list lazily — ask for it early so the first
+// line doesn't go out before the French voice is known.
+if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.getVoices();
+
+export function speakFrench(text: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const synth = window.speechSynthesis;
+  synth.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "fr-FR";
+  const voices = synth.getVoices().filter((v) => v.lang.toLowerCase().startsWith("fr"));
+  utterance.voice = voices.find((v) => /google/i.test(v.name)) ?? voices[0] ?? null;
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  synth.speak(utterance);
+}
+
+export function stopSpeaking() {
+  if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+}

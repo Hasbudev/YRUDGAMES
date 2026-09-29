@@ -15,7 +15,7 @@ import {
   type PublicQuestion,
   type WhackHit,
 } from "@yrud/shared";
-import { playWhack } from "@/lib/sfx";
+import { playWhack, speakFrench, stopSpeaking } from "@/lib/sfx";
 import { useSuppressAmbiance } from "@/lib/ambiance";
 import { OrnatePanel } from "@/components/quiz/OrnatePanel";
 import { MoleSprite } from "./MoleSprite";
@@ -111,7 +111,9 @@ export function WhackGame({ question, onWhack, paused }: WhackGameProps) {
     setTimeout(() => setFloaters((prev) => prev.filter((f) => f.key !== key)), 900);
 
     if (def.effect === "popup") {
-      setPopup({ until: now + ARTY_POPUP_MS, line: ARTY_LINES[mole.id % ARTY_LINES.length] });
+      const line = ARTY_LINES[mole.id % ARTY_LINES.length];
+      setPopup({ until: now + ARTY_POPUP_MS, line });
+      speakFrench(line); // Artymasion reads his "avis" out loud, Google-Translate style
     }
   }
 
@@ -123,10 +125,19 @@ export function WhackGame({ question, onWhack, paused }: WhackGameProps) {
   const musicOn = elapsed >= 0 && !over && !paused;
   useSuppressAmbiance(!over);
 
+  // The music ducks while Artymasion's voice reads his avis.
+  const speaking = popupLeft > 0;
+  useEffect(() => {
+    const audio = musicRef.current;
+    if (audio) audio.volume = speaking ? 0.25 : 0.8;
+  }, [speaking]);
+  // Nothing left to say once the game is over or the board unmounts.
+  useEffect(() => (over ? stopSpeaking() : undefined), [over]);
+  useEffect(() => () => stopSpeaking(), []);
+
   useEffect(() => {
     const audio = musicRef.current;
     if (!audio) return;
-    audio.volume = 0.8;
     if (musicOn) {
       audio.play().catch(() => {});
     } else {
