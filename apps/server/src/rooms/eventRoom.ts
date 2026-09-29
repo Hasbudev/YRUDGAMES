@@ -122,9 +122,9 @@ export class EventRoom {
     lastOutcome?: BombState["lastOutcome"];
   } | null = null;
   private bombRoundsDone = new Set<number>();
-  // Points each player gained in the manche being played — for manche 4's
-  // "the winner steals" and nothing else.
-  private roundGains: { roundIndex: number; byPlayer: Record<string, number> } | null = null;
+  // Who answered the live question, in arrival order — for manche 4, where
+  // the fastest right answer earns a steal.
+  private answerOrder: string[] = [];
   private steal: StealState | null = null;
 
   constructor(io: IoServer, eventId: string, code: string, questions: InternalQuestion[]) {
@@ -340,6 +340,7 @@ export class EventRoom {
 
     this.state = engine.submitAnswer(this.state, playerId, choiceIndex);
     if (playerId in this.state.answers) {
+      this.answerOrder.push(playerId);
       // Broadcast live "who's answered" progress — never what they chose.
       this.broadcastSnapshot();
     }
@@ -428,6 +429,7 @@ export class EventRoom {
   private launchQuestion() {
     const current = engine.currentQuestion(this.state);
     if (!current) return;
+    this.answerOrder = [];
     this.whackGame =
       current.theme === "whack" && current.metadata?.whack
         ? (() => {
@@ -484,9 +486,8 @@ export class EventRoom {
     this.lastReveal = result;
 
     if (question) {
-      this.trackRoundGains(question.roundIndex, result);
       if (question.metadata?.bomb) this.tickBomb(question, result);
-      this.maybeOpenSteal(question);
+      this.maybeOpenSteal(question, result);
     }
 
     if (question) {
@@ -859,23 +860,14 @@ export class EventRoom {
 
   // --- Manche 4: the winner steals ------------------------------------------
 
-  private trackRoundGains(roundIndex: number, result: RevealResult) {
-    if (this.roundGains?.roundIndex !== roundIndex) this.roundGains = { roundIndex, byPlayer: {} };
-    for (const r of result.results) {
-      this.roundGains.byPlayer[r.playerId] = (this.roundGains.byPlayer[r.playerId] ?? 0) + r.delta;
-    }
-  }
-
-  private maybeOpenSteal(question: InternalQuestion) {
+  // After each question carrying `steal`: whoever got it right first picks a
+  // player to take that many points from. Nobody right → no steal.
+  private maybeOpenSteal(question: InternalQuestion, result: RevealResult) {
     const amount = question.metadata?.steal;
     if (!amount) return;
-    const next = this.state.questions[this.state.questionIndex + 1];
-    if (next && next.roundIndex === question.roundIndex) return; // not the manche's last question
-    const gains = this.roundGains?.byPlayer ?? {};
-    const best = Math.max(0, ...Object.values(gains));
-    if (best <= 0) return;
-    const pendingIds = Object.keys(gains).filter((id) => gains[id] === best);
-    this.steal = { amount, pendingIds, done: [] };
+    const right = new Set(result.results.filter((r) => r.correct).map((r) => r.playerId));
+    const fastest = this.answerOrder.find((id) => right.has(id));
+    if (fastest) this.steal = { amount, pendingIds: [fastest], done: [] };
   }
 
   async stealPoints(thiefId: string, victimId: string): Promise<{ ok: true } | { error: string }> {

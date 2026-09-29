@@ -367,21 +367,29 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     expect(pts).toMatchObject({ b: 10, b2: 10, b3: 11, a: 31, c: 30 });
   });
 
-  it("manche 4: the manche's winner steals from whoever they pick", async () => {
+  it("manche 4: after each question, the fastest right answer steals from whoever they pick", async () => {
     const { room } = await room3Clans([
       question("n1", { metadata: { steal: 5 } }),
-      question("x1", { roundIndex: 2 }),
+      question("n2", { metadata: { steal: 5 } }),
     ]);
-    await room.adjustPoints("b", 3);
+    await room.adjustPoints("a", 3);
     await room.beginQuiz();
-    room.submitAnswer("a", "n1", 0);
+    room.submitAnswer("b", "n1", 1); // first, but wrong
+    room.submitAnswer("c", "n1", 0); // first right answer
+    room.submitAnswer("a", "n1", 0); // right, but slower
     await room.reveal();
-    expect(room.snapshot().steal).toMatchObject({ amount: 5, pendingIds: ["a"] });
-    expect(await room.next()).toEqual({ error: expect.stringContaining("Alice") });
-    expect(await room.stealPoints("b", "c")).toEqual({ error: expect.any(String) });
-    expect(await room.stealPoints("a", "b")).toEqual({ ok: true });
+    expect(room.snapshot().steal).toMatchObject({ amount: 5, pendingIds: ["c"] });
+    expect(await room.next()).toEqual({ error: expect.stringContaining("Chloé") });
+    expect(await room.stealPoints("a", "b")).toEqual({ error: expect.any(String) });
+    expect(await room.stealPoints("c", "a")).toEqual({ ok: true });
     const pts = Object.fromEntries(room.snapshot().players.map((p) => [p.id, p.points]));
-    expect(pts).toMatchObject({ a: 4, b: 0 }); // Bob only had 3 to lose
+    // Alice had 3 + 1 for her right answer: only 4 to take. Chloé: 1 + 4.
+    expect(pts).toMatchObject({ a: 0, c: 5 });
     expect(await room.next()).toEqual({ ok: true });
+
+    // Nobody right → no steal, nothing blocks.
+    room.submitAnswer("a", "n2", 1);
+    await room.reveal();
+    expect(room.snapshot().steal).toBeUndefined();
   });
 });

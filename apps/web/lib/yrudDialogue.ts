@@ -33,7 +33,7 @@ const ROUND_INTRO_LINES: Record<number, string[]> = {
   4: [
     "Vous avez parcouru toutes ces routes, paraît-il. Prouvez-le.",
     "Manche 4 : Le Navidex. Un Pokémon a disparu de chaque route. Écrivez son nom, en français ou en anglais.",
-    "Le meilleur de la manche volera 5 points à qui il veut. Oui, j'encourage la trahison.",
+    "À chaque question, le plus rapide volera 5 points à qui il veut. Oui, j'encourage la trahison.",
   ],
   5: [
     "Un peu de musique, pour ceux qui commencent à s'ennuyer. Moi le premier.",

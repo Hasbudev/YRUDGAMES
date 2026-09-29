@@ -44,7 +44,7 @@ export interface QuestionMetadata {
   slider?: { pokemon: string; species: string; stat: string; low: number; high: number };
   // Manche 3 — the hot-potato bomb runs during these questions.
   bomb?: { count: number; penalty: number };
-  // Manche 4 — after the manche's last question, its winner steals this
+  // Manche 4 — after this question, whoever got it right first steals this
   // many points from a player of their choice.
   steal?: number;
 }

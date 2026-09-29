@@ -11,7 +11,7 @@ interface StealPanelProps {
   onSteal?: (victimId: string) => void;
 }
 
-// Manche 4 — the manche's winner picks who to rob.
+// Manche 4 — after each question, the fastest right answer picks who to rob.
 export function StealPanel({ steal, players, myPlayerId, onSteal }: StealPanelProps) {
   const [sent, setSent] = useState(false);
   const nameOf = (id: string) => players.find((p) => p.id === id)?.name ?? "?";
@@ -20,7 +20,7 @@ export function StealPanel({ steal, players, myPlayerId, onSteal }: StealPanelPr
   return (
     <div className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border-2 border-gold bg-gold/10 p-4">
       <p className="text-center font-display text-lg font-black text-gold-bright">
-        🦹 {myTurn ? `Tu as gagné la manche ! Vole ${steal.amount} pts à qui tu veux :` : "Le vainqueur de la manche vole des points !"}
+        🦹 {myTurn ? `Tu as trouvé en premier ! Vole ${steal.amount} pts à qui tu veux :` : "Le plus rapide vole des points !"}
       </p>
       {myTurn && (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

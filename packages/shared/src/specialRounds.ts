@@ -66,7 +66,8 @@ export interface BombState {
 // How many wrong answers a bomb takes to go off (secret, drawn per bomb).
 export const BOMB_STRIKES = { min: 1, max: 3 };
 
-// Manche 4 — the manche's winner steals points from whoever they pick.
+// Manche 4 — each question's fastest right answer steals points from
+// whoever that player picks.
 export interface StealState {
   amount: number;
   // Winners who still have to pick a victim.

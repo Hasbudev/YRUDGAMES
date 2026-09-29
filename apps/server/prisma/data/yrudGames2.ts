@@ -2,7 +2,7 @@
 //   1 Quizz mécaniques — each clan picks a category (6 pts on its own, 3 on others)
 //   2 Stat slider      — stop the cursor on the stat's max (6 / 3 / 1 pts)
 //   3 Vrai ou Faux     — plus 3 hot-potato bombs (−20 for the clan holding one)
-//   4 Le Navidex       — free text; the manche's winner steals 5 pts
+//   4 Le Navidex       — free text; each question's fastest finder steals 5 pts
 //   5 Blind Test       — per-question points from the doc
 //   6 Chasse-Taupes
 // They replace manches 1 to 6 of a bank with prisma/replaceRounds.ts.
@@ -349,14 +349,14 @@ export const YRUD_GAMES_2_ROUNDS: NewRound[] = [
     // Typing a name takes longer than clicking a choice.
     scoring: { ...FLAT, timeLimitSec: 30 },
     ownScoring: true,
-    questions: NAVIDEX.map((n, i, all) => ({
+    questions: NAVIDEX.map((n, i) => ({
       prompt: `Quel Pokémon manque sur ${n.route} ?`,
       mediaUrl: `/quizz/images/yg2-navidex-${String(i + 1).padStart(2, "0")}.jpg`,
       choices: [n.fr],
       correctIndex: 0,
       acceptedAnswers: [...new Set([n.fr, n.en])],
-      // The manche's winner steals 5 pts from whoever they want.
-      meta: i === all.length - 1 ? { steal: 5 } : undefined,
+      // The first player to find it steals 5 pts from whoever they want.
+      meta: { steal: 5 },
     })),
   },
   {

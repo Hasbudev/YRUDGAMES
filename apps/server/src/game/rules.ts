@@ -55,7 +55,12 @@ export function summarizeRound(
   }
   const steal = inRound.find((q) => q.metadata?.steal)?.metadata?.steal;
   if (steal) {
-    specialRules.push({ icon: "🦹", label: "Le vainqueur de la manche vole des points à qui il veut", value: `${steal} pts`, tone: "bonus" });
+    specialRules.push({
+      icon: "🦹",
+      label: "À chaque question, le premier à trouver vole des points au joueur de son choix",
+      value: `${steal} pts`,
+      tone: "bonus",
+    });
   }
   const pointsOf = (q: InternalQuestion): number[] =>
     q.theme === "slider"

@@ -17,6 +17,6 @@ export function questionExtras(q: QuestionRecord): string[] {
     lines.push(`🏳 Catégorie : ${m.category}${pts}`);
   }
   if (m.bomb) lines.push(`💣 Bombe active : ${m.bomb.count} bombes, −${m.bomb.penalty} pts au clan`);
-  if (m.steal) lines.push(`🦹 Fin de manche : le vainqueur vole ${m.steal} pts`);
+  if (m.steal) lines.push(`🦹 Le premier à trouver vole ${m.steal} pts au joueur de son choix`);
   return lines;
 }
