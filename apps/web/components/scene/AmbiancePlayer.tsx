@@ -34,25 +34,46 @@ function store(key: string, value: string) {
 }
 
 // One audio element for the whole page: the bar is re-rendered as the screen
-// changes (question → reveal → dialogue…), and the theme must carry on
-// instead of restarting from zero each time.
+// changes (question → reveal → dialogue…), and the music must carry on
+// instead of restarting from zero each time. When a track ends, the next one
+// of the current playlist starts (back to the first after the last).
 let sharedAudio: HTMLAudioElement | null = null;
+let playlist: string[] = [];
+let trackIndex = 0;
 function audio(): HTMLAudioElement {
   if (!sharedAudio) {
-    sharedAudio = new Audio();
-    sharedAudio.loop = true;
-    sharedAudio.preload = "auto";
+    const a = new Audio();
+    a.preload = "auto";
+    a.addEventListener("ended", () => {
+      if (playlist.length === 0) return;
+      trackIndex = (trackIndex + 1) % playlist.length;
+      a.src = playlist[trackIndex];
+      a.play().catch(() => {});
+    });
+    sharedAudio = a;
   }
   return sharedAudio;
 }
 
-// The floating sound bar (bottom right): plays the background theme of the
+// Points the player at a playlist; keeps the current track if it's the same list.
+function loadPlaylist(tracks: string[]) {
+  const a = audio();
+  if (tracks.join("|") !== playlist.join("|")) {
+    playlist = tracks;
+    trackIndex = 0;
+    if (tracks.length) a.src = tracks[0];
+  } else if (tracks.length && !a.src) {
+    a.src = tracks[trackIndex];
+  }
+}
+
+// The floating sound bar (bottom right): plays the background playlist of the
 // current scene mood, with mute and volume remembered per browser. Browsers
 // refuse sound before the page's first click/key, so until then it waits
 // for one. It pauses by itself while something else plays its own sound.
 export function AmbiancePlayer() {
   const { mood } = useSceneMood();
-  const track = AMBIANCE_TRACKS[mood];
+  const tracks = AMBIANCE_TRACKS[mood];
   const [volume, setVolume] = useState(30);
   const [muted, setMuted] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -73,11 +94,12 @@ export function AmbiancePlayer() {
     a.muted = muted;
   }, [volume, muted]);
 
-  const shouldPlay = !!track && !muted && !suppressed;
+  const shouldPlay = tracks.length > 0 && !muted && !suppressed;
+  const playlistKey = tracks.join("|");
 
   useEffect(() => {
     const a = audio();
-    if (track && !a.src.endsWith(encodeURI(track))) a.src = track;
+    loadPlaylist(playlistKey ? playlistKey.split("|") : []);
     if (!shouldPlay) {
       a.pause();
       return;
@@ -98,7 +120,7 @@ export function AmbiancePlayer() {
       window.removeEventListener("pointerdown", onGesture);
       window.removeEventListener("keydown", onGesture);
     };
-  }, [track, shouldPlay]);
+  }, [playlistKey, shouldPlay]);
 
   function toggleMute() {
     const next = !muted;

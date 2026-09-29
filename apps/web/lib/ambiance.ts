@@ -1,15 +1,16 @@
 import { useEffect } from "react";
 import type { SceneMood } from "@/components/scene/SceneMoodContext";
 
-// Background theme per scene mood — an audio file under apps/web/public,
-// looped quietly behind the event by the floating sound bar (AmbiancePlayer).
-// null = silence for that mood. Same file everywhere for now.
-const THEME = "/ambiance/leon-epic.mp3";
-export const AMBIANCE_TRACKS: Record<SceneMood, string | null> = {
-  calm: THEME, // lobby, quiz rounds
-  tense: THEME, // close calls, trap reveals
-  duel: THEME, // Yrud duels, the Pokémon final battle
-  finale: THEME, // end-of-event summary
+// Background playlist per scene mood — audio files under apps/web/public,
+// played one after the other and looped by the floating sound bar
+// (AmbiancePlayer). An empty list = silence for that mood. Same playlist
+// everywhere for now.
+const PLAYLIST = ["/ambiance/leon-epic.mp3", "/ambiance/leon-remix.mp3"];
+export const AMBIANCE_TRACKS: Record<SceneMood, string[]> = {
+  calm: PLAYLIST, // lobby, quiz rounds
+  tense: PLAYLIST, // close calls, trap reveals
+  duel: PLAYLIST, // Yrud duels, the Pokémon final battle
+  finale: PLAYLIST, // end-of-event summary
 };
 
 // Anything that plays its own sound (a blind-test clip, the chasse-taupes
