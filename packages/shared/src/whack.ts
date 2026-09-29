@@ -19,6 +19,12 @@ export interface MoleKindDef {
   description: string;
 }
 
+// Tapping Rudy multiplies every gain for a while (not Tchoupi's loss).
+export const RUDY_BOOST_MULTIPLIER = 1.1;
+export const RUDY_BOOST_MS = 6700;
+// "×1,1" — the multiplier as shown on screen.
+export const RUDY_BOOST_LABEL = `×${String(RUDY_BOOST_MULTIPLIER).replace(".", ",")}`;
+
 export const MOLE_KINDS: Record<MoleKind, MoleKindDef> = {
   taupiqueur: {
     kind: "taupiqueur",
@@ -44,7 +50,7 @@ export const MOLE_KINDS: Record<MoleKind, MoleKindDef> = {
     weight: 6,
     fallbackSprite: "/sprites/yrud.png",
     effect: "boost",
-    description: "Points ×1,5 pendant 6,7 s",
+    description: `Points ${RUDY_BOOST_LABEL} pendant ${String(RUDY_BOOST_MS / 1000).replace(".", ",")} s`,
   },
   artymasion: {
     kind: "artymasion",
@@ -64,8 +70,6 @@ export const WHACK_MUSIC_RATE = { start: 1, end: 1.12, finalRush: 1.2, finalRush
 // Voice clip dropped into the mix once, mid-game.
 export const WHACK_VOICE_URL = "/pranks/zeratchoupi-vocal.ogg";
 export const WHACK_VOICE_AT_MS = 20_000;
-export const RUDY_BOOST_MULTIPLIER = 1.5;
-export const RUDY_BOOST_MS = 6700;
 export const ARTY_POPUP_MS = 3000;
 // How late a hit may reach the server after the mole went back down —
 // covers network latency, not reflexes.

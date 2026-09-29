@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ARTY_POPUP_MS,
   MOLE_KINDS,
+  RUDY_BOOST_LABEL,
   RUDY_BOOST_MS,
+  RUDY_BOOST_MULTIPLIER,
   WHACK_HOLES,
   WHACK_MUSIC_RATE,
   WHACK_MUSIC_URL,
@@ -101,10 +103,10 @@ export function WhackGame({ question, onWhack, paused }: WhackGameProps) {
 
     const text =
       def.effect === "boost"
-        ? "×1,5 !"
+        ? `${RUDY_BOOST_LABEL} !`
         : def.effect === "popup"
           ? "AVIS"
-          : `${def.points > 0 ? "+" : "−"}${String(Math.abs(def.points * (boosted ? 1.5 : 1))).replace(".", ",")}`;
+          : `${def.points > 0 ? "+" : "−"}${String(Math.round(Math.abs(def.points * (boosted ? RUDY_BOOST_MULTIPLIER : 1)) * 10) / 10).replace(".", ",")}`;
     floaterKey.current += 1;
     const key = floaterKey.current;
     setFloaters((prev) => [...prev, { key, hole: mole.hole, text, good: def.points >= 0 }]);
@@ -178,7 +180,7 @@ export function WhackGame({ question, onWhack, paused }: WhackGameProps) {
           </span>
           {boostLeft > 0 && !over && (
             <span className="animate-pulse rounded-full border border-emerald-400/60 bg-emerald-400/15 px-3 py-1 font-display font-black text-emerald-300">
-              RUDY ×1,5 · {(boostLeft / 1000).toFixed(1)} s
+              RUDY {RUDY_BOOST_LABEL} · {(boostLeft / 1000).toFixed(1)} s
             </span>
           )}
           {onWhack && (
