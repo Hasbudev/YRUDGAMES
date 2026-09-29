@@ -351,8 +351,8 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     const afterWrong = room.snapshot();
     if (!emitted.some((e) => e.event === "bomb:explode")) {
       // Its fuse wasn't out yet: still on paldea, heating up.
-      expect(afterWrong.bomb.holderClan).toBe("paldea");
-      expect(afterWrong.bomb.heat).toBeGreaterThan(0);
+      expect(afterWrong.bomb?.holderClan).toBe("paldea");
+      expect(afterWrong.bomb?.heat).toBeGreaterThan(0);
     }
     // Keep failing until it goes off (fuses are 1 to 3 strikes).
     for (let i = 2; i < 4 && !emitted.some((e) => e.event === "bomb:explode"); i++) {
