@@ -1,6 +1,7 @@
 import type { BattleLogEntry, BattleSnapshot } from "./showdown-types";
 import type { DuelRoll } from "./duel-types";
 import type { BombState, CategoryDraft, StealState } from "./specialRounds";
+import type { EventSummary } from "./summary-types";
 
 export type GamePhase = "lobby" | "intro" | "roundIntro" | "question" | "reveal" | "battle" | "finished";
 
@@ -163,6 +164,14 @@ export interface ArenaSnapshot {
   answeringClan?: string;
   bomb?: BombState;
   steal?: StealState;
+  // Once the last manche is over: the quiz's final standings (the "merci
+  // d'avoir participé" screen), then — once Yrud announces it — the final
+  // battle's two finalists. Kept here so a client that reloads mid-way
+  // lands back on the right screen.
+  endOfQuiz?: {
+    summary: EventSummary;
+    combat?: { player1: { id: string; name: string }; player2: { id: string; name: string } };
+  };
   // Whether Yrud has armed the currently-live question as a trap — surfaced
   // to the admin console only (players never see this before reveal).
   trapActive: boolean;

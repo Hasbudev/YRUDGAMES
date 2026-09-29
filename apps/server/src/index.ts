@@ -143,6 +143,11 @@ io.on("connection", async (socket) => {
     ack?.(room.sliderTrick(trick));
   });
 
+  socket.on("admin:announceCombat", async (ack) => {
+    if (!requireAdmin(ack)) return;
+    ack?.(await room.announceCombat());
+  });
+
   socket.on("admin:skipSteal", async (ack) => {
     if (!requireAdmin(ack)) return;
     ack?.(await room.skipSteal());

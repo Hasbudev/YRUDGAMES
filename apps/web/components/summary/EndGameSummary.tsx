@@ -9,9 +9,10 @@ import { Podium, placementLabel } from "@/components/site/Podium";
 interface EndGameSummaryProps {
   summary: EventSummary;
   myPlayerId?: string | null;
+  title?: string;
 }
 
-export function EndGameSummary({ summary, myPlayerId }: EndGameSummaryProps) {
+export function EndGameSummary({ summary, myPlayerId, title = "Résumé de la soirée" }: EndGameSummaryProps) {
   const podiumRef = useRef<HTMLDivElement>(null);
   const statsRef = useRef<HTMLDivElement>(null);
 
@@ -37,7 +38,7 @@ export function EndGameSummary({ summary, myPlayerId }: EndGameSummaryProps) {
 
   return (
     <div className="flex w-full max-w-3xl flex-col items-center gap-8 py-4">
-      <h2 className="font-display text-glow-gold text-3xl font-black text-gold-bright">Résumé de la soirée</h2>
+      <h2 className="font-display text-glow-gold text-3xl font-black text-gold-bright">{title}</h2>
 
       <div ref={podiumRef} className="w-full">
         <Podium

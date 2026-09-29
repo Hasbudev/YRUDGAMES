@@ -42,6 +42,7 @@ import { YrudDialogue } from "@/components/yrud/YrudDialogue";
 import { INTRO_LINES, combatLines, roundIntroLines } from "@/lib/yrudDialogue";
 import { EndGameSummary } from "@/components/summary/EndGameSummary";
 import { GrandFinaleScreen } from "@/components/summary/GrandFinaleScreen";
+import { ThankYouScreen } from "@/components/summary/ThankYouScreen";
 import { RevealCard } from "@/components/quiz/RevealCard";
 import { WhackGame } from "@/components/whack/WhackGame";
 import { WhackReveal } from "@/components/whack/WhackReveal";
@@ -496,12 +497,30 @@ export function PlayClient({ code }: { code: string }) {
     );
   }
 
-  if (pendingCombat && snapshot?.phase !== "battle" && !battleSnapshot && battleFinalWinnerId === undefined) {
+  // Finalists announced — from the event, or from the snapshot after a reload.
+  const combat =
+    pendingCombat ??
+    (snapshot?.endOfQuiz?.combat
+      ? { player1: snapshot?.endOfQuiz.combat.player1.name, player2: snapshot?.endOfQuiz.combat.player2.name }
+      : null);
+
+  if (combat && snapshot?.phase !== "battle" && !battleSnapshot && battleFinalWinnerId === undefined) {
     return (
       <YrudDialogue
-        lines={combatLines(pendingCombat.player1, pendingCombat.player2)}
+        lines={combatLines(combat.player1, combat.player2)}
         waitingLabel="En attente que Yrud lance la Bataille Finale..."
       />
+    );
+  }
+
+  // Last manche over, final battle not announced yet: thanks + standings.
+  if (snapshot?.endOfQuiz && !snapshot?.endOfQuiz.combat && !winnerIds && !battleSnapshot && battleFinalWinnerId === undefined) {
+    return (
+      <div className="flex w-full flex-col items-center gap-6">
+        {overlays}
+        {header}
+        <ThankYouScreen summary={snapshot?.endOfQuiz.summary} myPlayerId={playerId} />
+      </div>
     );
   }
 

@@ -127,6 +127,9 @@ export class EventRoom {
   // the fastest right answer earns a steal.
   private answerOrder: string[] = [];
   private steal: StealState | null = null;
+  private endOfQuiz: ArenaSnapshot["endOfQuiz"] | null = null;
+  // Questions already played before a server restart (see restore()).
+  private answeredBeforeRestart = new Set<string>();
 
   constructor(io: IoServer, eventId: string, code: string, questions: InternalQuestion[]) {
     this.io = io;
@@ -134,6 +137,34 @@ export class EventRoom {
     this.code = code;
     this.socketRoom = `event:${code}`;
     this.state = engine.createInitialState(questions);
+  }
+
+  // After a server restart, puts a live or finished event back where it was:
+  // the players with their points and clans (so they can reconnect), and the
+  // next question not played yet, paused on its manche intro until Yrud
+  // clicks "C'est parti !". What only lived in memory is lost: the manche 1
+  // category vote (Yrud relaunches it) and a bomb in progress (restarts).
+  async restore(
+    players: { id: string; name: string; clan: string | null; points: number }[],
+    answeredQuestionIds: string[],
+    finished: boolean
+  ) {
+    const byId: GameState["players"] = {};
+    for (const p of players) {
+      byId[p.id] = { id: p.id, name: p.name, points: p.points, streak: 0 };
+      this.clanByPlayer[p.id] = resolveClan(p.clan, p.id).id;
+    }
+    this.answeredBeforeRestart = new Set(answeredQuestionIds);
+    const nextIndex = this.state.questions.findIndex((q) => !this.answeredBeforeRestart.has(q.id));
+    const base = { ...this.state, players: byId, playerOrder: players.map((p) => p.id), answers: {}, questionStartedAt: null };
+    if (finished || nextIndex === -1) {
+      this.state = { ...base, phase: "finished", questionIndex: this.state.questions.length - 1 };
+      this.endOfQuiz = { summary: await this.computeSummary(engine.winners(this.state)) };
+    } else if (answeredQuestionIds.length === 0) {
+      this.state = { ...base, phase: "intro", questionIndex: -1 };
+    } else {
+      this.state = { ...base, phase: "roundIntro", questionIndex: nextIndex };
+    }
   }
 
   private toPublicPlayer(p: { id: string; name: string; points: number }): PublicPlayer {
@@ -228,6 +259,7 @@ export class EventRoom {
       roundRules: this.roundRules(),
       trapActive: this.state.trapActive,
       categoryDraft: this.categoryDraft ?? undefined,
+      endOfQuiz: this.endOfQuiz ?? undefined,
       answeringClan: this.answeringClan(),
       bomb: this.bomb
         ? {
@@ -593,20 +625,14 @@ export class EventRoom {
       );
 
       // Don't crown a point-based winner yet — the quiz is only the
-      // qualifier. The real climax is the final battle between the top two
-      // scorers, so announce that matchup instead ("Manche Combat") and
-      // defer game:finished (with the actual champion) to startFinalBattle's
-      // onEnd. If fewer than 2 players even exist, there's no battle to
-      // have — fall back to declaring the quiz result immediately.
-      const byPointsDesc = [...this.state.playerOrder].sort(
-        (a, b) => this.state.players[b].points - this.state.players[a].points
-      );
-      if (byPointsDesc.length >= 2) {
-        const [p1Id, p2Id] = byPointsDesc;
-        this.io.to(this.socketRoom).emit("combat:announce", {
-          player1: { id: p1Id, name: this.state.players[p1Id].name },
-          player2: { id: p2Id, name: this.state.players[p2Id].name },
-        });
+      // qualifier. First the "merci d'avoir participé" screen with the
+      // standings; Yrud then announces the final battle between the top two
+      // (announceCombat), and game:finished (with the actual champion) waits
+      // for the battle's end. With fewer than 2 players there's no battle:
+      // the quiz result is the final one.
+      this.endOfQuiz = { summary };
+      if (this.state.playerOrder.length >= 2) {
+        this.io.to(this.socketRoom).emit("quiz:ended", { summary });
       } else {
         this.io.to(this.socketRoom).emit("game:finished", { winnerIds, summary });
       }
@@ -694,25 +720,33 @@ export class EventRoom {
     const questions = this.state.questions;
     const slots = questions.map((q, i) => (q.metadata?.category ? i : -1)).filter((i) => i >= 0);
     if (slots.length === 0) return;
-    const rank = (category: string | undefined) => {
-      const clanIndex = draft.order.findIndex((clan) => draft.assignments[clan] === category);
+    // Questions already played before a restart stay in front, so resuming
+    // never replays them.
+    const rank = (q: InternalQuestion) => {
+      if (this.answeredBeforeRestart.has(q.id)) return -1;
+      const clanIndex = draft.order.findIndex((clan) => draft.assignments[clan] === q.metadata?.category);
       return clanIndex === -1 ? draft.order.length : clanIndex;
     };
     const sorted = slots
       .map((i) => questions[i])
       .map((q, originalPos) => ({ q, originalPos }))
-      .sort((a, b) => rank(a.q.metadata?.category) - rank(b.q.metadata?.category) || a.originalPos - b.originalPos)
+      .sort((a, b) => rank(a.q) - rank(b.q) || a.originalPos - b.originalPos)
       .map((x) => x.q);
     const next = [...questions];
     slots.forEach((slot, k) => (next[slot] = sorted[k]));
     this.state = { ...this.state, questions: next };
+    if (this.answeredBeforeRestart.size && this.state.phase === "roundIntro") {
+      const resumeAt = next.findIndex((q) => !this.answeredBeforeRestart.has(q.id));
+      if (resumeAt !== -1) this.state = { ...this.state, questionIndex: resumeAt };
+    }
   }
 
   async startDraft(order: string[]): Promise<{ ok: true } | { error: string }> {
     const categories = this.draftCategories();
     if (!categories.length) return { error: "Aucune manche à catégories dans cette partie." };
-    const firstCategoryIndex = this.state.questions.findIndex((q) => q.metadata?.category);
-    if (this.state.questionIndex > firstCategoryIndex || (this.state.questionIndex === firstCategoryIndex && this.state.phase !== "roundIntro")) {
+    const lastCategoryIndex = this.state.questions.reduce((last, q, i) => (q.metadata?.category ? i : last), -1);
+    const betweenQuestions = ["lobby", "intro", "roundIntro"].includes(this.state.phase);
+    if (!betweenQuestions || this.state.questionIndex > lastCategoryIndex) {
       return { error: "La manche à catégories a déjà commencé." };
     }
     const clanIds = CLAN_REGISTRY.map((c) => c.id);
@@ -900,6 +934,26 @@ export class EventRoom {
     if (this.state.phase !== "question" || question?.theme !== "slider") return { error: "Aucun curseur en cours." };
     if (!SLIDER_TRICKS.some((t) => t.id === trick)) return { error: "Coup inconnu." };
     this.io.to(this.socketRoom).emit("slider:trick", { trick: trick as SliderTrick });
+    return { ok: true };
+  }
+
+  // "merci d'avoir participé" → the final battle's announcement, when Yrud
+  // is ready: the two highest scorers.
+  async announceCombat(): Promise<{ ok: true } | { error: string }> {
+    if (this.state.phase !== "finished" || !this.endOfQuiz) return { error: "Le quiz n'est pas encore terminé." };
+    if (this.endOfQuiz.combat) return { error: "La bataille finale est déjà annoncée." };
+    const byPointsDesc = [...this.state.playerOrder].sort(
+      (a, b) => this.state.players[b].points - this.state.players[a].points
+    );
+    if (byPointsDesc.length < 2) return { error: "Il faut au moins 2 joueurs pour une bataille finale." };
+    const [p1Id, p2Id] = byPointsDesc;
+    const combat = {
+      player1: { id: p1Id, name: this.state.players[p1Id].name },
+      player2: { id: p2Id, name: this.state.players[p2Id].name },
+    };
+    this.endOfQuiz = { ...this.endOfQuiz, combat };
+    this.io.to(this.socketRoom).emit("combat:announce", combat);
+    this.broadcastSnapshot();
     return { ok: true };
   }
 

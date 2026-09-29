@@ -50,6 +50,16 @@ async function loadRoom(io: IoServer, code: string): Promise<EventRoom | null> {
   const mainQuestions = allQuestions.filter((q) => q.theme !== "speed");
 
   const room = new EventRoom(io, event.id, event.code, mainQuestions);
+  // A server restart mid-event (a redeploy, a crash) must not send everyone
+  // back to question 1 with 0 points: rebuild the room from the database.
+  if (event.status !== "draft") {
+    const [players, answered] = await Promise.all([
+      prisma.player.findMany({ where: { eventId: event.id }, orderBy: { joinedAt: "asc" } }),
+      prisma.answerLog.findMany({ where: { round: { eventId: event.id } }, select: { questionId: true }, distinct: ["questionId"] }),
+    ]);
+    await room.restore(players, answered.map((a) => a.questionId), event.status === "finished");
+    console.log(`[${code}] restored after restart: ${players.length} players, ${answered.length} questions already played`);
+  }
   rooms.set(code, room);
   return room;
 }

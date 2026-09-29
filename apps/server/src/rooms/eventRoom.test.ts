@@ -6,9 +6,11 @@ vi.mock("../db/client", () => ({
     event: { update: vi.fn(async () => ({})) },
     player: { upsert: vi.fn(async () => ({})), update: vi.fn(async () => ({})) },
     round: { create: vi.fn(async () => ({ id: "round" })) },
-    answerLog: { createMany: vi.fn(async () => ({})) },
-    tauntLog: { create: vi.fn(async () => ({})) },
-    prankLog: { create: vi.fn(async () => ({})) },
+    answerLog: { createMany: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
+    tauntLog: { create: vi.fn(async () => ({})), count: vi.fn(async () => 0) },
+    prankLog: { create: vi.fn(async () => ({})), count: vi.fn(async () => 0) },
+    duelLog: { findMany: vi.fn(async () => []) },
+    $transaction: vi.fn(async (ops: unknown[]) => ops),
   },
 }));
 
@@ -412,5 +414,68 @@ describe("EventRoom Yrud Games 2 special manches", () => {
     room.submitAnswer("a", "n2", 1);
     await room.reveal();
     expect(room.snapshot().steal).toBeUndefined();
+  });
+});
+
+describe("EventRoom end of the quiz", () => {
+  it("shows the standings first, then announces the final battle on Yrud's cue", async () => {
+    const { room, emitted } = setup([question("q1")]);
+    await room.addPlayer("p1", "Alice");
+    await room.addPlayer("p2", "Bob");
+    await room.addPlayer("p3", "Chloé");
+    await room.start();
+    await room.beginQuiz();
+    room.submitAnswer("p2", "q1", 0);
+    await room.reveal();
+    expect(await room.announceCombat()).toEqual({ error: expect.any(String) }); // quiz not over yet
+    await room.next();
+
+    const snap = room.snapshot();
+    expect(snap.phase).toBe("finished");
+    expect(snap.endOfQuiz?.summary.standings[0]).toMatchObject({ playerId: "p2", points: 1 });
+    expect(snap.endOfQuiz?.combat).toBeUndefined();
+    expect(emitted.some((e) => e.event === "quiz:ended")).toBe(true);
+    expect(emitted.some((e) => e.event === "combat:announce")).toBe(false);
+
+    expect(await room.announceCombat()).toEqual({ ok: true });
+    const announce = emitted.find((e) => e.event === "combat:announce")!.payload;
+    expect(announce.player1.id).toBe("p2");
+    expect(room.snapshot().endOfQuiz?.combat?.player1.name).toBe("Bob");
+    expect(await room.announceCombat()).toEqual({ error: expect.any(String) }); // only once
+  });
+});
+
+describe("EventRoom restart", () => {
+  it("puts players, points and the next question back after a server restart", async () => {
+    const { room } = setup([question("q1", { roundIndex: 1 }), question("q2", { roundIndex: 1 }), question("q3", { roundIndex: 2 })]);
+    await room.restore(
+      [
+        { id: "p1", name: "Alice", clan: "paldea", points: 7 },
+        { id: "p2", name: "Bob", clan: "yrud", points: 3 },
+      ],
+      ["q1"],
+      false
+    );
+    let snap = room.snapshot();
+    expect(snap.phase).toBe("roundIntro");
+    expect(snap.question?.id).toBe("q2"); // resumes on the first unplayed question
+    expect(snap.players.map((p) => [p.name, p.points, p.clan])).toEqual([
+      ["Alice", 7, "paldea"],
+      ["Bob", 3, "yrud"],
+    ]);
+    // Reconnecting players get their old selves back, not a fresh 0-point player.
+    expect(await room.addPlayer("p1", "Alice")).toMatchObject({ points: 7 });
+    expect(await room.beginQuiz()).toEqual({ ok: true });
+    snap = room.snapshot();
+    expect(snap.phase).toBe("question");
+    expect(snap.question?.id).toBe("q2");
+  });
+
+  it("brings a finished event back to its end screen", async () => {
+    const { room } = setup([question("q1")]);
+    await room.restore([{ id: "p1", name: "Alice", clan: null, points: 2 }, { id: "p2", name: "Bob", clan: null, points: 5 }], ["q1"], true);
+    const snap = room.snapshot();
+    expect(snap.phase).toBe("finished");
+    expect(snap.endOfQuiz?.summary.standings[0].name).toBe("Bob");
   });
 });

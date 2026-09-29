@@ -108,6 +108,11 @@ export function ConsoleClient({ code }: { code: string }) {
       // the next in-battle broadcast, or forever if the battle already ended.
       if (snap.battle ?? snap.lastBattleSnapshot) setBattleSnapshot(snap.battle ?? snap.lastBattleSnapshot ?? null);
       if (snap.battleLog) setBattleLog(snap.battleLog.slice(-300));
+      // Reloaded after the finalists were announced: keep them pre-selected.
+      if (snap.endOfQuiz?.combat) {
+        setFinalist1Id((prev) => prev || snap.endOfQuiz!.combat!.player1.id);
+        setFinalist2Id((prev) => prev || snap.endOfQuiz!.combat!.player2.id);
+      }
     });
     socket.on("question:new", () => setActionError(null));
     socket.on("game:finished", ({ winnerIds, summary }) => {
@@ -146,7 +151,14 @@ export function ConsoleClient({ code }: { code: string }) {
   }
 
   function runAction(
-    action: "admin:start" | "admin:beginQuiz" | "admin:reveal" | "admin:next" | "admin:toggleTrap" | "admin:skip"
+    action:
+      | "admin:start"
+      | "admin:beginQuiz"
+      | "admin:reveal"
+      | "admin:next"
+      | "admin:toggleTrap"
+      | "admin:skip"
+      | "admin:announceCombat"
   ) {
     const socket = socketRef.current;
     if (!socket) return;
@@ -354,6 +366,16 @@ export function ConsoleClient({ code }: { code: string }) {
           ⏭ Passer la question
         </button>
       </div>
+      {snapshot.phase === "finished" && snapshot.endOfQuiz && !snapshot.endOfQuiz.combat && snapshot.players.length >= 2 && (
+        <div className="flex flex-col items-center gap-2">
+          <p className="text-sm text-ink">
+            Les joueurs voient l&apos;écran « Merci d&apos;avoir participé » avec le classement. Quand tu es prêt :
+          </p>
+          <button onClick={() => runAction("admin:announceCombat")} className="btn-crimson">
+            ⚔ Annoncer la bataille finale
+          </button>
+        </div>
+      )}
       {snapshot.phase === "question" && (
         <p className="text-xs text-ink-muted">
           {snapshot.question?.theme === "ost"

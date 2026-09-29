@@ -29,6 +29,8 @@ export interface ServerToClientEvents {
     player2: { id: string; name: string };
   }) => void;
   "game:finished": (payload: { winnerIds: string[]; summary: EventSummary }) => void;
+  // The last manche is over: final standings, before the final battle is announced.
+  "quiz:ended": (payload: { summary: EventSummary }) => void;
   "error:message": (payload: { message: string }) => void;
   "yrud:taunt": (payload: { message: string }) => void;
   "prank:trigger": (payload: { prankId: string; text: string }) => void;
@@ -68,6 +70,8 @@ export interface ClientToServerEvents {
   "admin:closeVote": (ack?: (res: { ok: true } | { error: string }) => void) => void;
   // Gives up on a pending steal (the winner is AFK...).
   "admin:skipSteal": (ack?: (res: { ok: true } | { error: string }) => void) => void;
+  // After the "merci d'avoir participé" screen: reveals the two finalists.
+  "admin:announceCombat": (ack?: (res: { ok: true } | { error: string }) => void) => void;
   "admin:sliderTrick": (payload: { trick: SliderTrick }, ack?: (res: { ok: true } | { error: string }) => void) => void;
   // Fired once a player clicks all the way through Yrud's current cold-open
   // — purely informational (see ArenaSnapshot.introSeenPlayerIds), never
